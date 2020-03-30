@@ -49,70 +49,75 @@ def mkhardlink(src, link_dir):
         os.remove(link_name)
         os.link(src,link_name)
 
-def mkTextDataset(path, test_size=0.2):
+def mkTextDataset(path, test_size=0.2, datasplit=True):
     imglist = []
+    allDatasetPath = curry(lambda root: f'{root}/data/original.txt') 
     if os.path.isdir(path):
-        root = os.path.normpath(f'{path}/..')
+        root = os.path.normpath(f'{path}/../..')
         imglist = readListFromFolder(path,root)
+        allDatasetPath = allDatasetPath(root)
+        print(allDatasetPath)
+        list2txt(imglist, allDatasetPath)
+        print('모든 이미지 경로를 original.txt에 저장했습니다.')
+
     elif os.path.isfile(path):
-        if os.path.basename(path) in ['train.txt', 'test.txt']:
-            print('파일명을 train.txt, test.txt가 아닌 것으로 바꿔주세요.')
+        if not os.path.basename(path)=='original.txt':
+            print('파일명을 original.txt로 바꿔주세요.')
             return
         root = os.path.normpath(f'{os.path.split(path)[0]}/..')
         imglist = readListFromtxt(path,root)
+        allDatasetPath = allDatasetPath(root)
     else:
         print('파일 경로를 확인하세요')
         return
     print(f'총 {len(imglist)}장의 이미지가 있습니다.')
     
-    trainOrigin, testOrigin = train_test_split(imglist, test_size = test_size, random_state=1)
-    trainChgMidFd = chgMidFd(trainOrigin, 'train')
-    testChgMidFd = chgMidFd(testOrigin, 'test')
-
-    trainDatasetPath = os.path.join(root, f'data/train.txt')
-    testDatasetPath = os.path.join(root, f'data/test.txt')
-    allDatasetPath = os.path.join(root, f'data/all.txt') 
+    if datasplit:
+        trainDatasetPath = os.path.join(root, f'data/train.txt')
+        testDatasetPath = os.path.join(root, f'data/test.txt')
     
-    DatasetBundleSavePath = os.path.join(root, f'data/DatasetBundle.txt')
-    DatasetBundle = [trainDatasetPath, testDatasetPath, allDatasetPath]
-    list2txt(DatasetBundle, DatasetBundleSavePath)
+        trainOrigin, testOrigin = train_test_split(imglist, test_size = test_size, random_state=1)
+        trainChgMidFd = chgMidFd(trainOrigin, 'train')
+        testChgMidFd = chgMidFd(testOrigin, 'test')
 
-    list2txt(trainChgMidFd, trainDatasetPath)
-    print(f'{len(trainChgMidFd)}장의 train data list를 만들었습니다.')
-    trainXmlList = chgext(trainOrigin, '.xml')
-    trainTxtList = chgext(trainOrigin, '.txt')
-    for img in trainOrigin:
-        mkhardlink(os.path.join(root, img), os.path.join(root,'data/train'))
-    for xml in trainXmlList:
-        xmlwithroot = os.path.join(root, xml)
-        if os.path.isfile(xmlwithroot):
-            mkhardlink(xmlwithroot, os.path.join(root,'data/train'))
-    for txt in trainTxtList:
-        txtwithroot = os.path.join(root, txt)
-        if os.path.isfile(txtwithroot):
-            mkhardlink(txtwithroot, os.path.join(root,'data/train'))
+        DatasetBundleSavePath = os.path.join(root, f'data/DatasetBundle.txt')
+        DatasetBundle = [trainDatasetPath, testDatasetPath, allDatasetPath]
+        list2txt(DatasetBundle, DatasetBundleSavePath)
+
+        list2txt(trainChgMidFd, trainDatasetPath)
+        print(f'{len(trainChgMidFd)}장의 train data list를 만들었습니다.')
+        trainXmlList = chgext(trainOrigin, '.xml')
+        trainTxtList = chgext(trainOrigin, '.txt')
+        for img in trainOrigin:
+            mkhardlink(os.path.join(root, img), os.path.join(root,'data/train'))
+        for xml in trainXmlList:
+            xmlwithroot = os.path.join(root, xml)
+            if os.path.isfile(xmlwithroot):
+                mkhardlink(xmlwithroot, os.path.join(root,'data/train'))
+        for txt in trainTxtList:
+            txtwithroot = os.path.join(root, txt)
+            if os.path.isfile(txtwithroot):
+                mkhardlink(txtwithroot, os.path.join(root,'data/train'))
 
 
-    list2txt(testChgMidFd, testDatasetPath)
-    print(f'{len(testChgMidFd)}장의 test data list를 만들었습니다.')
-    testXmlList = chgext(testOrigin, '.xml')
-    testTxtList = chgext(testOrigin, '.txt')
-    for img in testOrigin:
-        mkhardlink(os.path.join(root, img), os.path.join(root, 'data/test'))
-    for xml in testXmlList:
-        xmlwithroot = os.path.join(root, xml)
-        if os.path.isfile(xmlwithroot):
-            mkhardlink(xmlwithroot, os.path.join(root, 'data/test'))
-    for txt in testTxtList:
-        txtwithroot = os.path.join(root, txt)
-        if os.path.isfile(txtwithroot):
-            mkhardlink(txtwithroot, os.path.join(root, 'data/test'))
+        list2txt(testChgMidFd, testDatasetPath)
+        print(f'{len(testChgMidFd)}장의 test data list를 만들었습니다.')
+        testXmlList = chgext(testOrigin, '.xml')
+        testTxtList = chgext(testOrigin, '.txt')
+        for img in testOrigin:
+            mkhardlink(os.path.join(root, img), os.path.join(root, 'data/test'))
+        for xml in testXmlList:
+            xmlwithroot = os.path.join(root, xml)
+            if os.path.isfile(xmlwithroot):
+                mkhardlink(xmlwithroot, os.path.join(root, 'data/test'))
+        for txt in testTxtList:
+            txtwithroot = os.path.join(root, txt)
+            if os.path.isfile(txtwithroot):
+                mkhardlink(txtwithroot, os.path.join(root, 'data/test'))
 
-    list2txt(trainChgMidFd+testChgMidFd, allDatasetPath)
-    print('모든 이미지 경로를 all.txt에 저장했습니다.')
 
 
 
 if __name__ == "__main__":
     # mkTextDataset('/home/tm/Code/darknet/data/train.txt')
-    mkTextDataset('/home/tm/Code/darknet/data/original.txt',test_size=0.3)
+    mkTextDataset('/home/tm/Code/darknet/data/data/20200330_2D_Case2',test_size=0.3, datasplit=False)
