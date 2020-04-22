@@ -20,7 +20,7 @@ def existAnno(path, root):
     xml = os.path.isfile(os.path.join(root,chgext(path, '.xml')))
     return (xml | txt)
 
-filteredimglist = lambda List, root: list(filter(lambda elm: existAnno(1, root), List))
+filteredimglist = lambda List, root: list(filter(lambda elm: existAnno(el, root), List))
 
 def readListFromtxt(path, root):
     imglist = txt2list(path)
