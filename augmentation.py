@@ -6,6 +6,8 @@ import glob
 import cv2
 from imgaug import augmenters as iaa
 import numpy as np
+np.random.bit_generator = np.random._bit_generator
+
 from imgaug.augmentables.batches import UnnormalizedBatch
 from PIL import Image
 import aug_cfg
@@ -18,7 +20,7 @@ Image.MAX_IMAGE_PIXELS = 1000000000
 
 BATCH_SIZE = 10
 goal = 400
-inputpath = "/home/tm/dataset/Crack/최종발표대비/V&Vtest_all.txt"
+inputpath = "/home/tm/nasrw/결함-YOLOv3/cvat upload/task_결함-2020_04_06_05_28_07-yolo/obj_train_data"
 suffix = ''
 file_preffix = ''
 # seqs = [aug_cfg.seq_Crop, aug_cfg.seq_Pad]
@@ -97,7 +99,7 @@ def voc2yolo(box, size):
 
 def drawbbs(image, bbs):
     for i in bbs.bounding_boxes:
-        fontscale = max(image.shape[:2])/1000
+        fontscale = max(image.shape[:2])/3000
         thick = int(fontscale*3)
         if thick <= 0: thick=1
         (w,h), _ = cv2.getTextSize(labels[i.label], cv2.FONT_HERSHEY_DUPLEX,fontscale,thick)
@@ -354,7 +356,7 @@ def mkaug(commonpath, filepath):
     else:
         if drawbbox:
             image = drawbbs(image, bbs)
-        imgsave(image, filepath, commonpath,filename)
+        imgsave(image, filepath, commonpath)
         print('{} is saved\n'.format(filename))
 
 def load_imgpathlist(inputpath):

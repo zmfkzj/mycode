@@ -3,9 +3,8 @@ import os
 import xml.etree.cElementTree as ET
 from PIL import Image
 import numpy as np
+from util import *
 
-textfile = "/home/tm/dataset/Crack/최종발표대비/V&Vtest_all.txt"
-classfile = os.path.normpath(os.path.join('/home/tm/dataset/Crack/Crawling/test/classes.txt'))
 
 class InputFileFormatError(Exception):
     def __str__(self):
@@ -26,7 +25,6 @@ def loadlabel(inputpath):
 
     return labeldict
 
-CLASS_MAPPING = loadlabel(textfile)
 
 def create_root(imgpath, width, height):
     imgname = os.path.basename(imgpath)
@@ -98,19 +96,20 @@ def read_file(imgpath):
     print("Processing complete for file: {}".format(imgpath))
 
 
-def start(textfile):
-    with open(textfile,'r') as f:
-        imgpathlist = f.readlines()
-    imgpathlist = [i.rstrip('\n') for i in imgpathlist]
+def start(textfile,root):
+    imgpathlist = txt2list(textfile)
+    imgpathlist = map(lambda path: f'{root}/{path}', imgpathlist)
 
     for imgpath in imgpathlist:
-        path, imgname = os.path.split(imgpath)
-        filename = os.path.splitext(imgname)[0]
-
+        path, _ = os.path.split(imgpath)
         if not os.path.exists(path):
             os.makedirs(path)
         read_file(imgpath) 
 
 
 if __name__ == "__main__":
-    start(textfile)
+    textfile = "/home/tm/Code/darknet/data/test.txt"
+    root = '/home/tm/Code/darknet'
+    classfile = "/home/tm/Code/darknet/data/obj.names"
+    CLASS_MAPPING = loadlabel(textfile)
+    start(textfile, root)

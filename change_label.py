@@ -1,15 +1,14 @@
 import os
 import xml.etree.ElementTree as ET
+from util import *
 
 
 change_list = {'MS(Material Seperation)' : 'MS',
                 'RE(Rebar Exposure)' : 'RE'}
 
-def analyze_anno(imgpath_textfile):
-    with open(imgpath_textfile, 'r') as f:
-        xmlpathlist = f.readlines()
-    xmlpathlist = [path.rstrip('\n') for path in xmlpathlist]
-    xmlpathlist = [f'{os.path.splitext(path)[0]}.xml' for path in xmlpathlist]
+def analyze_anno(imgpath_textfile, root):
+    xmlpathlist = chgext(txt2list(imgpath_textfile), '.xml')
+    xmlpathlist = list(map(lambda xmlpath: f'{root}/{xmlpath}', xmlpathlist))
 
     classes = dict()
     for xmlfile in xmlpathlist:
@@ -27,7 +26,7 @@ def analyze_anno(imgpath_textfile):
     for key, value in classes.items():
         print(f'{key}\tObject가 총 {value}개 있습니다.')
 
-def change_label(path, before_label, after_label):
+def change_label(path,root, before_label, after_label):
     xml = ET.parse(path)
     root = xml.getroot()
     for obj in root.iter('object'):
@@ -37,7 +36,9 @@ def change_label(path, before_label, after_label):
     xml.write(path)
 
 if __name__ == "__main__":
-    analyze_anno('/home/tm/dataset/Crack/최종발표대비/panorama_all.txt')
+    path = '/home/tm/Code/darknet/data/test.txt'
+    root = '/home/tm/Code/darknet'
+    analyze_anno(path, root)
     # change_label('/run/user/1000/gvfs/ftp:host=nas62.local/File/결함-YOLOv3/stillcut/191023_당인교_윈치캠영상/C0005 (12-10-2019 9-15-04 AM)_all.txt')
     # change_label('/run/user/1000/gvfs/ftp:host=nas62.local/File/결함-YOLOv3/stillcut/191023_당인교_윈치캠영상/C0005 (12-10-2019 9-15-04 AM)/C0005 034.xml',
             # list(change_list.keys())[0], list(change_list.values())[0])

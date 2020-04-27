@@ -41,5 +41,11 @@ def pickFilename(path):
     filename = os.path.splitext(basename)[0]
     return filename
 
+def num(s):
+    try:
+        return int(s)
+    except ValueError:
+        return float(s)
+
 if __name__ == "__main__":
     ChkNMkFolder("/home/tm/Code/mycode/b/c")

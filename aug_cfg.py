@@ -6,9 +6,9 @@ share_aug_option = [
         iaa.Fliplr(0.5),
         iaa.Flipud(0.5),
         iaa.geometric.Rot90((0,3),keep_size=False),
-        iaa.Multiply((0.9,1.1), per_channel=True),
+        iaa.Multiply((0.95,1.05), per_channel=True),
         iaa.MultiplyHueAndSaturation((0.5,1.5),per_channel=False),
-        iaa.MotionBlur(k=(1,5)),
+        iaa.MotionBlur(k=(3,5)),
         iaa.Grayscale((0.0,1.0))
         ]
 

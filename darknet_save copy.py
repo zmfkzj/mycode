@@ -34,9 +34,9 @@ import os
 import cv2
 import time
 import pandas as pd
-from detection_result import *
 from predict_result import *
 from util import *
+import datetime as dt
 
 from PIL import Image
 Image.MAX_IMAGE_PIXELS = 1000000000
@@ -162,6 +162,9 @@ make_image.restype = IMAGE
 get_network_boxes = lib.get_network_boxes
 get_network_boxes.argtypes = [c_void_p, c_int, c_int, c_float, c_float, POINTER(c_int), c_int, POINTER(c_int), c_int]
 get_network_boxes.restype = POINTER(DETECTION)
+
+test_detector = lib.test_detector
+test_detector.argtypes = [c_char_p, c_char_p,c_char_p, c_char_p,c_float, c_float, c_int, c_int, c_int, c_char_p, c_int]
 
 make_network_boxes = lib.make_network_boxes
 make_network_boxes.argtypes = [c_void_p]
@@ -312,7 +315,7 @@ metaMain = None
 altNames = None
 
 @curry
-def performDetect(imagePath="data/dog.jpg", 
+def performDetect(imagePath, 
                     thresh= 0.25, 
                     configPath = "./cfg/yolov3.cfg", 
                     weightPath = "yolov3.weights", 
@@ -411,68 +414,26 @@ def performDetect(imagePath="data/dog.jpg",
 
 if __name__ == "__main__":
     start = time.time()
-    performDetect(thresh= 0.00, 
-                configPath = "data/yolov3-voc.cfg", 
-                weightPath = "data/backup/yolov3-voc_best.weights", 
-                metaPath= "data/obj.data",
-                initOnly=True)
+    IOU_thresh = 0.5
+    conf_thresh = 0.25
+
+    detection_time = dt.datetime.now().strftime('%y%m%d-%H%M')
+    detector = performDetect(thresh= 0.001, 
+                            configPath = "data/yolov3-voc.cfg", 
+                            weightPath = "data/backup/yolov3-voc_best.weights", 
+                            metaPath= "data/obj.data",
+                            initOnly= False)
+    detector('',initOnly=True)
     print("init time : {}".format(time.time()-start))
     imgtxtpath = 'data/test.txt'
     savedir = 'data/output'
-    with open(imgtxtpath, 'r') as f:
-        imgpath = f.readlines()
-    imgpath = [i.rstrip('\n') for i in imgpath]
+    pred = run_detection(detector, imgtxtpath, detection_time)
 
-    starttime = time.time()
-    pred = pd.DataFrame()
-    for k, i in enumerate(imgpath):
-        print(k,'\t', i)
-        result, img_W, img_H = performDetect(imagePath=i, 
-                                            thresh= 0.01, 
-                                            configPath = "data/yolov3-voc.cfg", 
-                                            weightPath = "data/backup/yolov3-voc_best.weights", 
-                                            metaPath= "data/obj.data",
-                                            initOnly= False)
-        runtime = time.time()-starttime
-        print("pred time : {}".format(runtime))
-        pred_sub = get_pred(result, i, (img_W, img_H), runtime, model='yolo')
-        pred = pd.concat([pred, pred_sub])
-        starttime = time.time()
-
-        # if result:
-        #     print(result)
-        #     print(len(result))
-        #     subpred_perObject = yoloOutput(result, img_W, img_H)
-        # else:
-        #     subpred_perObject = pd.DataFrame(columns=['pred_class','id','conf','pred_x_center','pred_y_center','pred_W','pred_H','pred_left','pred_top','pred_right','pred_bottom'])
-
-        # if os.path.isfile(anno:=chgext(i,'.txt')):
-        #     subGTdf = mkSubGTdf(anno, 'data/obj.names', img_W, img_H)
-        #     subGTdf['id'] = range(subGTdf.shape[0])
-
-        #     for _, values in subGTdf.transpose().items():
-        #         GTBbox = values[['GT_left','GT_top','GT_right','GT_bottom']].values
-        #         IoU = subpred_perObject[['pred_left','pred_top','pred_right','pred_bottom']].apply(lambda predBbox: iou(GTBbox, predBbox),axis=1)
-        #         IoUidx = (IoU >= 50) & (subpred_perObject['pred_class'] == values['GT_class'])
-        #         IoUvalue = IoU.loc[IoUidx]
-        #         subpred_perObject.loc[IoUidx,'id'] = int(values['id'])
-        #         subpred_perObject.loc[IoUidx,'IoU'] = IoUvalue
-
-        #     if subpred_perObject.loc[subpred_perObject['id'].isna()].values.tolist():
-        #         maxid = subGTdf['id'].max()
-        #         subpred_perObject.loc[subpred_perObject['id'].isna(), 'id'] = range(maxid+1, maxid+subpred_perObject.loc[subpred_perObject['id'].isna(), 'id'].size+1)
-
-        # subDF = pd.merge(subGTdf, subpred_perObject, how='outer')
-        # subDF['image'] = i
-        # subDF['img_W'] = img_W
-        # subDF['img_H'] = img_H
-        # detectionResult_perObject =  detectionResult_perObject.append(subDF, ignore_index=True)
     print("time : {}".format(time.time()-start))
     perObj_predpart = process_pred(pred)
-    
-    perObj_gtpart = eval(perObj_predpart, "data/obj.names")
-    print(perObj_gtpart)
+    perObj = eval(perObj_predpart, "data/obj.names", imgtxtpath, detection_time, IOU_thresh, conf_thresh)
     # perObj_evalpart = 
-    detectionResult_perObject.to_csv("detectionResult_perObject.csv", index=False, encoding='euc-kr')
-    to_perImg(detectionResult_perObject, conf_thresh=0.25)
+    # detectionResult_perObject.to_csv("detectionResult_perObject.csv", index=False, encoding='euc-kr')
+    to_other(perObj,imgtxtpath, detection_time, IOU_thresh, conf_thresh, other='perImg')
+    to_other(perObj,imgtxtpath, detection_time, IOU_thresh, conf_thresh, other='perDataset')
     # print(to_perImg(detectionResult_perObject))

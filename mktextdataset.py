@@ -20,7 +20,7 @@ def existAnno(path, root):
     xml = os.path.isfile(os.path.join(root,chgext(path, '.xml')))
     return (xml | txt)
 
-filteredimglist = lambda List, root: list(filter(lambda elm: existAnno(el, root), List))
+filteredimglist = lambda List, root: list(filter(lambda elm: existAnno(elm, root), List))
 
 def readListFromtxt(path, root):
     imglist = txt2list(path)
@@ -49,7 +49,7 @@ def mkhardlink(src, link_dir):
         os.remove(link_name)
         os.link(src,link_name)
 
-def mkTextDataset(path, test_size=0.2, datasplit=True):
+def mkTextDataset(path, test_size=0.3, datasplit=True):
     imglist = []
     allDatasetPath = curry(lambda root: f'{root}/data/original.txt') 
     if os.path.isdir(path):
@@ -65,6 +65,7 @@ def mkTextDataset(path, test_size=0.2, datasplit=True):
             print('파일명을 original.txt로 바꿔주세요.')
             return
         root = os.path.normpath(f'{os.path.split(path)[0]}/..')
+        print(path)
         imglist = readListFromtxt(path,root)
         allDatasetPath = allDatasetPath(root)
     else:
@@ -120,4 +121,4 @@ def mkTextDataset(path, test_size=0.2, datasplit=True):
 
 if __name__ == "__main__":
     # mkTextDataset('/home/tm/Code/darknet/data/train.txt')
-    mkTextDataset('/home/tm/Code/darknet/data/data/20200330_2D_Case2',test_size=0.3, datasplit=False)
+    mkTextDataset('/home/tm/Code/darknet/data/original.txt',test_size=0.3, datasplit=True)
