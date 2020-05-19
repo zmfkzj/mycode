@@ -7,7 +7,7 @@ import os
 from os.path import join
 import shutil
 
-root = '/home/tm/nasrw/터널결함정보/결함정답영상 - 복사본'
+root = os.path.expanduser('~/nasrw/터널결함정보/결함정답영상 - 복사본/백태,누수-14개')
 newfolder = join(root, 'data/origin')
 
 def mkhardlink(src, link_dir, root):
@@ -27,19 +27,20 @@ def mkhardlink(src, link_dir, root):
 
 imglist_origin = readListFromFolder(root, ['.jpg', '.png', '.xml', '.txt'])
 for f in imglist_origin:
-    if not 'data' in f.split('/'):
+    if not 'data/gt' in f:
         mkhardlink(join(root, f),newfolder, root)
         # for img in Origin:
         #         mkhardlink(os.path.join(root, img), os.path.join(root,f'data/{dataset}'))
 imglist = mkTextDataset(newfolder, testsize='')
 
 gt_part = process_gt(imglist['all'], 'all', root)
+# gt_part = pd.read_csv(os.path.expanduser('~/nasrw/mk/MetaR-CNN/dataset/VOC2007/gtpart_default.csv'), encoding='euc-kr')
 
 classes = gt_part['class'].unique()
 class_count = len(classes)
 
 if not os.path.isdir(os.path.join(root,'data/gt')):
-    os.mkdir(os.path.join(root,'data/gt'))
+    os.makedirs(os.path.join(root,'data/gt'))
 
 gt_bboxes = gt_part.loc[gt_part['id'].notna(), ['img', 'class', 'gt_left', 'gt_top', 'gt_right', 'gt_bottom']].set_index('img')
 
@@ -51,10 +52,10 @@ print(color)
 
 imgs = gt_part['img'].unique()
 def run(img_path):
-    if img_path[0]!='/':
-        ori_img = cv2.imread(os.path.join(root, img_path))
-    else:
+    if os.path.isabs(img_path):
         ori_img = cv2.imread(img_path)
+    else:
+        ori_img = cv2.imread(os.path.join(root, img_path))
 
     fontscale = max(ori_img.shape[:2])/6000
     thick = int(fontscale*4)

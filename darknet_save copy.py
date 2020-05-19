@@ -35,8 +35,10 @@ import cv2
 import time
 import pandas as pd
 from predict_result import *
-from util import *
+from util.filecontrol import *
 import datetime as dt
+from itertools import chain
+from collections import defaultdict
 
 from PIL import Image
 Image.MAX_IMAGE_PIXELS = 1000000000
@@ -262,7 +264,7 @@ def detect_image(net, meta, im, thresh=.5, hier_thresh=.5, nms=.45, debug= False
     #import cv2
     #custom_image_bgr = cv2.imread(image) # use: detect(,,imagePath,)
     #custom_image = cv2.cvtColor(custom_image_bgr, cv2.COLOR_BGR2RGB)
-    #custom_image = cv2.resize(custom_image,(lib.network_width(net), lib.network_height(net)), interpolation = cv2.INTER_LINEAR)
+    #custom_image = cv2.resize(custom_image,(lib.network_width(net), lib.network_height(net)), interpolation = cv2otherTER_LINEAR)
     #import scipy.misc
     #custom_image = scipy.misc.imread(image)
     #im, arr = array_to_image(custom_image)		# you should comment line below: free_image(im)
@@ -315,12 +317,7 @@ metaMain = None
 altNames = None
 
 @curry
-def performDetect(imagePath, 
-                    thresh= 0.25, 
-                    configPath = "./cfg/yolov3.cfg", 
-                    weightPath = "yolov3.weights", 
-                    metaPath= "./cfg/coco.data", 
-                    initOnly= False):
+def performDetect(imagePath, conf_thresh, configPath, weightPath, metaPath, initOnly, **kwargs):
     """
     Convenience function to handle the detection and returns of objects.
 
@@ -369,7 +366,7 @@ def performDetect(imagePath,
     """
     # Import the global variables. This lets us instance Darknet once, then just call performDetect() again without instancing again
     global metaMain, netMain, altNames #pylint: disable=W0603
-    assert 0 <= thresh <= 1, "Threshold should be a float between zero and one (non-inclusive)"
+    assert 0 <= conf_thresh <= 1, "Threshold should be a float between zero and one (non-inclusive)"
     if not os.path.exists(configPath):
         raise ValueError("Invalid config path `"+os.path.abspath(configPath)+"`")
     if not os.path.exists(weightPath):
@@ -409,31 +406,29 @@ def performDetect(imagePath,
     # Do the detection
     #detections = detect(netMain, metaMain, imagePath, thresh)	# if is used cv2.imread(image)
 
-    detections, img_W, img_H = detect(netMain, metaMain, imagePath.encode("utf-8"), thresh)
+    detections, img_W, img_H = detect(netMain, metaMain, imagePath.encode("utf-8"), 0.005)
     return detections, img_W, img_H
 
 if __name__ == "__main__":
     start = time.time()
-    IOU_thresh = 0.5
-    conf_thresh = 0.25
+    # root = '/home/tm/nasrw/2D Object Detection_민군 작업 장소/2.트레이닝 사용 이미지/2DOD_민군_20200428_YOLOv4_1/'
+    root = ''
+    arg = { 'IOU_thresh' : 0.5,
+            'conf_thresh' : 0.25,
+            'configPath' : f"{root}data/Crack_8_yolov3-voc_panorama.cfg", 
+            'weightPath' : f"{root}data/backup/Crack_8_yolov3-voc_final.weights", 
+            'metaPath' : f"{root}data/obj.data",
+            'imgtxtpath' : f'{root}data/당인교.txt',
+            'namesfile' : "data/obj.names",
+            'detection_time' : dt.datetime.now().strftime('%y%m%d-%H%M'),
+            'root': root}
 
-    detection_time = dt.datetime.now().strftime('%y%m%d-%H%M')
-    detector = performDetect(thresh= 0.001, 
-                            configPath = "data/yolov3-voc.cfg", 
-                            weightPath = "data/backup/yolov3-voc_best.weights", 
-                            metaPath= "data/obj.data",
-                            initOnly= False)
+    detector = performDetect(initOnly= False, **arg)
     detector('',initOnly=True)
     print("init time : {}".format(time.time()-start))
-    imgtxtpath = 'data/test.txt'
-    savedir = 'data/output'
-    pred = run_detection(detector, imgtxtpath, detection_time)
+    pred = run_detection(detector, **arg)
 
     print("time : {}".format(time.time()-start))
     perObj_predpart = process_pred(pred)
-    perObj = eval(perObj_predpart, "data/obj.names", imgtxtpath, detection_time, IOU_thresh, conf_thresh)
-    # perObj_evalpart = 
-    # detectionResult_perObject.to_csv("detectionResult_perObject.csv", index=False, encoding='euc-kr')
-    to_other(perObj,imgtxtpath, detection_time, IOU_thresh, conf_thresh, other='perImg')
-    to_other(perObj,imgtxtpath, detection_time, IOU_thresh, conf_thresh, other='perDataset')
-    # print(to_perImg(detectionResult_perObject))
+    perObj = to_perObj(perObj_predpart, **arg)
+    to_other(perObj, **arg)
