@@ -1,7 +1,10 @@
-from predict_result import process_gt
+from os.path import *
+import sys
+sys.path.append(dirname(dirname(dirname(__file__))))
+
+from detection_predict_result import process_gt
 import pandas as pd
 from util.filecontrol import pickFilename, list2txt
-from os.path import *
 from sklearn.model_selection import train_test_split
 import cv2
 
@@ -36,21 +39,10 @@ def mkdataset(filelist, subset, root, form='voc'):
     list2txt(trainval_img, join(root, f'ImageSets/Main/trainval.txt'))
     list2txt(test_img, join(root, f'ImageSets/Main/test.txt'))
 
-    #mask
-    img_size = gtpart.loc[~gtpart["img"].duplicated(), ['img', 'img_H', 'img_W']].copy()
-    img_size['img'] = img_size['img'].map(pickFilename)
-    img_size = img_size.set_index('img')
-    imgs = img_size.index
-    size = img_size.to_numpy()
-    for (img,shape)  in zip(imgs, size):
-        cv2.imwrite(img_size.set_index('img').to_numpy())
-
-
-
 if __name__ == "__main__":
     # root = expanduser('~/nasrw/mk/dataset/VOC/VOCdevkit/VOC2007')
     # filelist = join(root, 'ImageSets/Main/shots.txt')
-    root = expanduser('~/nasrw/mk/MetaR-CNN/dataset/VOC2007')
+    root = expanduser('~/nasrw/mk/MetaR-CNN/dataset/VOC2007_aug_0520')
     filelist = join(root, 'ImageSets/Main/default.txt')
     subset = pickFilename(filelist)
 

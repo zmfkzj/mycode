@@ -7,7 +7,7 @@ import os
 from os.path import join
 import shutil
 
-root = os.path.expanduser('~/nasrw/터널결함정보/결함정답영상 - 복사본/백태,누수-14개')
+root = os.path.expanduser('~/nasrw/mk/MetaR-CNN/dataset_aug_05210113/VOC2007/JPEGImages')
 newfolder = join(root, 'data/origin')
 
 def mkhardlink(src, link_dir, root):
@@ -25,7 +25,7 @@ def mkhardlink(src, link_dir, root):
 # if not os.path.isdir(newfolder):
 #     os.makedirs(newfolder)
 
-imglist_origin = readListFromFolder(root, ['.jpg', '.png', '.xml', '.txt'])
+imglist_origin = folder2list(root, ['.jpg', '.png', '.xml', '.txt'])
 for f in imglist_origin:
     if not 'data/gt' in f:
         mkhardlink(join(root, f),newfolder, root)

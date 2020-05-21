@@ -20,16 +20,16 @@ def drawbbs(img, label, bbox, gt=False, fontscale=1, thick=1, color=(255,0,0)):
     else:
         cv2.rectangle(img, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, thick)
 
+    #draw label
     fontpath = "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf"     
     font = ImageFont.truetype(fontpath, int(30*fontscale))
     img_pil = Image.new('RGB', (int(600+fontscale),int(35*fontscale)))
     draw = ImageDraw.Draw(img_pil)
     w, h = draw.textsize(label, font=font)
-    text_y = bbox[1] - h
-    if text_y<0: text_y=0
-    # draw.rectangle((bbox[0], text_y, bbox[0]+w,text_y+h), fill=color, width=-1)
-    # draw.rectangle((bbox[0], text_y, bbox[0]+w,text_y+h), fill=color, width=thick)
-    # draw.text((bbox[0], text_y), label, font = font, fill = (0,0,0))
+
+    text_y = bbox[1] - h #label 위치 조정
+    if text_y<0:
+        text_y=0
     draw.rectangle((0, 0, w-1, h-1), fill=color, width=-1)
     draw.rectangle((0, 0, w-1, h-1), fill=color, width=thick)
     draw.text((0, 0), label, font = font, fill = (1,1,1))
@@ -45,14 +45,6 @@ def drawbbs(img, label, bbox, gt=False, fontscale=1, thick=1, color=(255,0,0)):
 
     img[tuple(label_idx_inImg)] = img_pil[tuple(label_idx)]
     
-    # (w,h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_DUPLEX,fontscale,thick)
-    # text_y = bbox[1]
-    # if (bbox[1]-h)<0:
-    #     text_y = bbox[1]+h
-    # cv2.rectangle(img,(bbox[0], text_y), (bbox[0]+w,text_y+h), color,-1)
-    # cv2.rectangle(img,(bbox[0], text_y), (bbox[0]+w,text_y+h), color,thick)
-    # cv2.putText(img, label, (bbox[0], text_y), cv2.FONT_HERSHEY_DUPLEX,fontscale,(0,0,0),thickness=thick,bottomLeftOrigin=False)
-
     return img
 
 def RoundRectangle(img, topleft, bottomright, color, thick, linestyle='dot'):

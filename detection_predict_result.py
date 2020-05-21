@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 from util.filecontrol import *
+from converter.annotation.voc2yolo import calxyWH
+from converter.annotation.yolo2voc import calLTRB
 from sklearn.metrics import average_precision_score
 from os.path import isfile, join, basename
 import time
@@ -57,35 +59,6 @@ def get_pred(pred, img_path, img_size, runtime, model='yolo'):
     pred['img_H'] = img_size[1]
     pred['runtime'] = runtime
     return pred
-
-def calLTRB(yolobbox):
-    #calculate Left, Top, Right, Bottom
-    x, y, w, h = yolobbox
-    xExtent = w/2.
-    yExtent = h/2.
-    L = x-xExtent
-    R = x+xExtent
-    T = y-yExtent
-    B = y+yExtent
-    LTRB = np.array([L, T, R, B])
-    return LTRB
-
-def calxyWH(ltbr_bbox, img_size):
-    '''
-    ltbr_bbox = (left, top, right, bottom)
-    img_size = (H, W)
-
-    '''
-    l, t, r, b = ltbr_bbox
-    dh = 1./img_size[0]
-    dw = 1./img_size[1]
-    x = (l + r)/2.0
-    y = (t + b)/2.0
-    w = r - l
-    h = b - t
-    xywh = np.array([x*dw, y*dh, w*dw, h*dh])
-    return xywh
-
 
 def process_pred(pred):
     if isinstance(pred,str):

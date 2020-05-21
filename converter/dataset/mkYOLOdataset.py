@@ -46,7 +46,7 @@ def mkTextDataset(path, testsize=0.3, valid=None):
     result = {}
     if os.path.isdir(path):
         root = os.path.normpath(f'{path}/../..')
-        imglist = readListFromFolder(root, ['.png', '.jpg'], path)
+        imglist = folder2list(root, ['.png', '.jpg'], path)
         result['all'] = imglist
         allDatasetPath = allDatasetPath(root)
         list2txt(imglist, allDatasetPath)
