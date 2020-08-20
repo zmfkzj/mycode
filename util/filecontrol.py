@@ -1,3 +1,4 @@
+# -*- coding:utf-8 -*-
 import os
 from collections.abc import Iterable
 from toolz import curry, reduce
@@ -67,8 +68,8 @@ def addsuffix(path:str, suffix:Union[str, List[str]]):
     newpath = os.path.join(root, f'{newfilename}{ext}')
     return newpath
 
-def list2txt(List, savepath):
-    with open(savepath,'w') as f:
+def list2txt(List, savepath, mode='w'):
+    with open(savepath,mode) as f:
         f.write("\n".join(List))
 
 def ChkNMkFolder(folderpath):

@@ -1,6 +1,6 @@
 from util.drawbbox import *
-from mktextdataset import mkTextDataset
-from predict_result import *
+from converter.dataset.mkYOLOdataset import mkTextDataset
+from detection_predict_result import *
 from tqdm import tqdm
 from multiprocessing import Pool
 import os
@@ -36,7 +36,7 @@ imglist = mkTextDataset(newfolder, testsize='')
 gt_part = process_gt(imglist['all'], 'all', root)
 # gt_part = pd.read_csv(os.path.expanduser('~/nasrw/mk/MetaR-CNN/dataset/VOC2007/gtpart_default.csv'), encoding='euc-kr')
 
-classes = gt_part['class'].unique()
+classes = gttestvalsize'].unique()
 class_count = len(classes)
 
 if not os.path.isdir(os.path.join(root,'data/gt')):

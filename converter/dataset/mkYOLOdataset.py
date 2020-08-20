@@ -1,4 +1,8 @@
 import os
+from os.path import dirname
+import sys
+sys.path.append(dirname(dirname(dirname(__file__))))
+
 from sklearn.model_selection import train_test_split
 import glob
 import shutil
@@ -6,15 +10,15 @@ from util.filecontrol import *
 from toolz import curry, reduce
 
 def existAnno(path, root):
-    txt = os.path.isfile(os.path.join(root,chgext(path, '.txt')))
-    xml = os.path.isfile(os.path.join(root,chgext(path, '.xml')))
+    txt = os.path.isfile(os.path.join(root,'..',chgext(path, '.txt')))
+    xml = os.path.isfile(os.path.join(root,'..',chgext(path, '.xml')))
     return (xml | txt)
 
-filteredimglist = lambda List, root: list(filter(lambda elm: existAnno(elm, root), List))
+filterExistAnno = lambda List, root: list(filter(lambda elm: existAnno(elm, root), List))
 
 def readListFromtxt(path, root):
     imglist = txt2list(path)
-    imglist = filteredimglist(imglist, root)
+    imglist = filterExistAnno(imglist, root)
     return imglist
 
 def chgelm(List, idx, newvalue):
@@ -39,13 +43,13 @@ def mkhardlink(src, link_dir):
         os.remove(link_name)
         os.link(src,link_name)
 
-def mkTextDataset(path, testsize=0.3, valid=None):
+def mkTextDataset(path, testvalsize=0.3, valid=None):
     imglist = []
-    allDatasetPath = curry(lambda root: f'{root}/data/original.txt') 
+    allDatasetPath = curry(lambda root: f'{root}/original.txt') 
 
     result = {}
     if os.path.isdir(path):
-        root = os.path.normpath(f'{path}/../..')
+        root = os.path.normpath(f'{path}/..')
         imglist = folder2list(root, ['.png', '.jpg'], path)
         result['all'] = imglist
         allDatasetPath = allDatasetPath(root)
@@ -53,11 +57,11 @@ def mkTextDataset(path, testsize=0.3, valid=None):
         print('모든 이미지 경로를 original.txt에 저장했습니다.')
 
     elif os.path.isfile(path):
-        if os.path.basename(path) in ['train.txt', 'test.txt', 'valid.txt']:
-            print('파일명을 train.txt, test.txtm, valid.txt 외 다른 것으로 바꿔주세요.')
-            return
-        root = os.path.normpath(f'{os.path.split(path)[0]}/..')
+        assert os.path.basename(path) not in ['train.txt', 'test.txt', 'valid.txt'], \
+        '파일명을 train.txt, test.txtm, valid.txt 외 다른 것으로 바꿔주세요.'
         print(path)
+
+        root = os.path.normpath(f'{os.path.split(path)[0]}')
         imglist = readListFromtxt(path,root)
         result['all'] = imglist
         allDatasetPath = allDatasetPath(root)
@@ -66,20 +70,20 @@ def mkTextDataset(path, testsize=0.3, valid=None):
         return
     print(f'총 {len(imglist)}장의 이미지가 있습니다.')
     
-    if testsize:
-        trainDatasetPath = os.path.join(root, f'data/train.txt')
-        testDatasetPath = os.path.join(root, f'data/test.txt')
+    if testvalsize:
+        trainDatasetPath = os.path.join(root, f'train.txt')
+        testDatasetPath = os.path.join(root, f'test.txt')
     
-        trainOrigin, testOrigin = train_test_split(imglist, test_size = testsize, random_state=1)
+        trainOrigin, testOrigin = train_test_split(imglist, test_size = testvalsize, random_state=31)
         trainChgMidFd = chgMidFd(trainOrigin, 'train')
         testChgMidFd = chgMidFd(testOrigin, 'test')
 
-        DatasetBundleSavePath = os.path.join(root, f'data/DatasetBundle.txt')
+        DatasetBundleSavePath = os.path.join(root, f'DatasetBundle.txt')
         DatasetBundle = [trainDatasetPath, testDatasetPath, allDatasetPath]
 
         if valid:
-            validDatasetPath = os.path.join(root, f'data/valid.txt')
-            validOrigin, testOrigin = train_test_split(testOrigin, test_size = valid, random_state=1)
+            validDatasetPath = os.path.join(root, f'valid.txt')
+            validOrigin, testOrigin = train_test_split(testOrigin, test_size = valid, random_state=31)
             validChgMidFd = chgMidFd(validOrigin, 'valid')
             testChgMidFd = chgMidFd(testOrigin, 'test')
             DatasetBundle = [trainDatasetPath, validDatasetPath, testDatasetPath, allDatasetPath]
@@ -92,15 +96,15 @@ def mkTextDataset(path, testsize=0.3, valid=None):
             XmlList = chgext(Origin, '.xml')
             TxtList = chgext(Origin, '.txt')
             for img in Origin:
-                mkhardlink(os.path.join(root, img), os.path.join(root,f'data/{dataset}'))
+                mkhardlink(os.path.join(root, '..', img), os.path.join(root,f'{dataset}'))
             for xml in XmlList:
-                xmlwithroot = os.path.join(root, xml)
+                xmlwithroot = os.path.join(root, '..', xml)
                 if os.path.isfile(xmlwithroot):
-                    mkhardlink(xmlwithroot, os.path.join(root,f'data/{dataset}'))
+                    mkhardlink(xmlwithroot, os.path.join(root, f'{dataset}'))
             for txt in TxtList:
-                txtwithroot = os.path.join(root, txt)
+                txtwithroot = os.path.join(root, '..', txt)
                 if os.path.isfile(txtwithroot):
-                    mkhardlink(txtwithroot, os.path.join(root,f'data/{dataset}'))
+                    mkhardlink(txtwithroot, os.path.join(root, f'{dataset}'))
 
         mk_dataset(trainOrigin, trainChgMidFd, trainDatasetPath, 'train')
         mk_dataset(testOrigin, testChgMidFd, testDatasetPath, 'test')
@@ -148,4 +152,4 @@ def mkTextDataset(path, testsize=0.3, valid=None):
 
 if __name__ == "__main__":
     # mkTextDataset('/home/tm/Code/darknet/data/train.txt')
-    mkTextDataset('/home/tm/nasrw/2D Object Detection_민군 작업 장소/2.트레이닝 사용 이미지/2DOD_민군_20200428_YOLOv4_2/data/original.txt', testsize=0.4, valid=0.5)
+    mkTextDataset(os.path.expanduser('~/nasrw/mk/work_dataset/2DOD_defect_20200626_YOLOv2_1/original.txt'), testvalsize=0.4, valid=0.5)
