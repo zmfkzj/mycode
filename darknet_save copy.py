@@ -34,7 +34,7 @@ import os
 import cv2
 import time
 import pandas as pd
-from predict_result import *
+from detection_predict_result import *
 from util.filecontrol import *
 import datetime as dt
 from itertools import chain
@@ -132,7 +132,7 @@ if os.name == "nt":
             lib = CDLL(winGPUdll, RTLD_GLOBAL)
             print("Environment variables indicated a CPU run, but we didn't find `"+winNoGPUdll+"`. Trying a GPU run anyway.")
 else:
-    lib = CDLL("./libdarknet.so", RTLD_GLOBAL)
+    lib = CDLL("./libdark.so", RTLD_GLOBAL)
 lib.network_width.argtypes = [c_void_p]
 lib.network_width.restype = c_int
 lib.network_height.argtypes = [c_void_p]
@@ -412,16 +412,17 @@ def performDetect(imagePath, conf_thresh, configPath, weightPath, metaPath, init
 if __name__ == "__main__":
     start = time.time()
     # root = '/home/tm/nasrw/2D Object Detection_민군 작업 장소/2.트레이닝 사용 이미지/2DOD_민군_20200428_YOLOv4_1/'
-    root = ''
+    root = '2DOD_defect_20200622_YOLOv2_1'
     arg = { 'IOU_thresh' : 0.5,
             'conf_thresh' : 0.25,
-            'configPath' : f"{root}data/Crack_8_yolov3-voc_panorama.cfg", 
-            'weightPath' : f"{root}data/backup/Crack_8_yolov3-voc_final.weights", 
-            'metaPath' : f"{root}data/obj.data",
-            'imgtxtpath' : f'{root}data/당인교.txt',
-            'namesfile' : "data/obj.names",
+            'configPath' : f"{root}/yolov2-voc.cfg", 
+            'weightPath' : f"{root}/backup/yolov2-voc_best.weights", 
+            'metaPath' : f"{root}/obj.data",
+            'imgtxtpath' : f'{root}/test2.txt',
+            'namesfile' : f"{root}/obj.names",
             'detection_time' : dt.datetime.now().strftime('%y%m%d-%H%M'),
-            'root': root}
+            'root': root,
+            'form': 'yolo'}
 
     detector = performDetect(initOnly= False, **arg)
     detector('',initOnly=True)

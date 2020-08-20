@@ -3,7 +3,8 @@ import os
 import xml.etree.cElementTree as ET
 from PIL import Image
 import numpy as np
-from util import *
+from util.filecontrol import *
+from typing import *
 
 
 class InputFileFormatError(Exception):
@@ -25,12 +26,23 @@ def loadlabel(inputpath):
 
     return labeldict
 
+def calLTRB(yolobbox) -> np.ndarray:
+    #calculate Left, Top, Right, Bottom
+    x, y, w, h = yolobbox
+    xExtent = w/2.
+    yExtent = h/2.
+    L = x-xExtent
+    R = x+xExtent
+    T = y-yExtent
+    B = y+yExtent
+    LTRB = np.array([L, T, R, B])
+    return LTRB
 
 def create_root(imgpath, width, height):
     imgname = os.path.basename(imgpath)
     root = ET.Element("annotations")
     ET.SubElement(root, "filename").text = imgname
-    ET.SubElement(root, "folder").text = 'Crack'
+    ET.SubElement(root, "folder").text = None
     size = ET.SubElement(root, "size")
     ET.SubElement(size, "width").text = str(width)
     ET.SubElement(size, "height").text = str(height)
@@ -54,15 +66,10 @@ def create_object_annotation(root, voc_labels):
 
 
 def create_file(imgpath, width, height, voc_labels):
-    path, imgname = os.path.split(imgpath)
-    filename = os.path.splitext(imgname)[0]
-
-
     root = create_root(imgpath, width, height)
     root = create_object_annotation(root, voc_labels)
     tree = ET.ElementTree(root)
-    tree.write("{}/{}.xml".format(path, filename))
-
+    return tree
 
 def read_file(imgpath):
     path, imgname = os.path.split(imgpath)
@@ -80,19 +87,13 @@ def read_file(imgpath):
             line = line.strip()
             data = line.split()
             voc.append(CLASS_MAPPING.get(data[0]))
-            bbox_width = float(data[3]) * w
-            bbox_height = float(data[4]) * h
-            center_x = float(data[1]) * w
-            center_y = float(data[2]) * h
-            voc.append(np.around(center_x - (bbox_width / 2)))
-            voc.append(np.around(center_y - (bbox_height / 2)))
-            voc.append(np.around(center_x + (bbox_width / 2)))
-            voc.append(np.around(center_y + (bbox_height / 2)))
-            # for idx,value in enumerate(voc):
-            #     if value <0:
-            #         voc[idx] = 0
+            LTRB = calLTRB(data[1:])
+            voc.extend(LTRB)
             voc_labels.append(voc)
-        create_file(imgpath, w, h, voc_labels)
+        tree = create_file(imgpath, w, h, voc_labels)
+        path, imgname = os.path.split(imgpath)
+        filename = os.path.splitext(imgname)[0]
+        tree.write("{}/{}.xml".format(path, filename))
     print("Processing complete for file: {}".format(imgpath))
 
 

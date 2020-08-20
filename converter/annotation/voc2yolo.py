@@ -5,45 +5,61 @@ from os import listdir, getcwd
 from os.path import join
 from glob import glob
 from util.filecontrol import txt2list, chgext
+import numpy as np
 
 # classes = ["Crack", "Leakage" ,"Peeling", "Desqu", "Efflor", "Fail", "MS", "RE"]
 
+def calxyWH(ltbr_bbox, img_size):
+    '''
+    ltbr_bbox = (left, top, right, bottom)
+    img_size = (H, W)
+    '''
+    l, t, r, b = ltbr_bbox
+    dh = 1./img_size[0]
+    dw = 1./img_size[1]
+    x = (l + r)/2.0
+    y = (t + b)/2.0
+    w = r - l
+    h = b - t
+    xywh = np.array([x*dw, y*dh, w*dw, h*dh])
+    return xywh
 
-def convert(size, box):
-    dw = 1./size[0]
-    dh = 1./size[1]
-    x = (box[0] + box[1])/2.0
-    y = (box[2] + box[3])/2.0
-    w = box[1] - box[0]
-    h = box[3] - box[2]
-    x = x*dw
-    w = w*dw
-    y = y*dh
-    h = h*dh
-    return (x,y,w,h)
-
-def convert_annotation(xmlfile, classes):
+def load_annotation(xmlfile:str) -> dict:
     in_file = open(xmlfile)
-    out_file = open(xmlfile[:-3]+'txt', 'w')
     tree=ET.parse(in_file)
     root = tree.getroot()
+    anno = dict()
     size = root.find('size')
-    w = int(size.find('width').text)
-    h = int(size.find('height').text)
+    anno['width'] = int(size.find('width').text)
+    anno['height'] = int(size.find('height').text)
 
+    objs = []
     for obj in root.iter('object'):
-        difficult = obj.find('difficult').text
+        try:
+            difficult = obj.find('difficult').text
+        except:
+            difficult = 0
         cls = obj.find('name').text
-        if cls not in classes or int(difficult) == 1:
+        if int(difficult) == 1:
             continue
-        cls_id = classes.index(cls)
         xmlbox = obj.find('bndbox')
-        b = (float(xmlbox.find('xmin').text), float(xmlbox.find('xmax').text), float(xmlbox.find('ymin').text), float(xmlbox.find('ymax').text))
-        bb = convert((w,h), b)
-        out_file.write(str(cls_id) + " " + " ".join([str(a) for a in bb]) + '\n')
+        obj = (cls, float(xmlbox.find('xmin').text), float(xmlbox.find('ymin').text), float(xmlbox.find('xmax').text), float(xmlbox.find('ymax').text))
+        objs.append(obj)
+
+    anno['obj'] = objs
+    return anno
+
+def convert_annotation(xmlfile, classes):
+    anno = load_annotation(xmlfile)
+    objs = anno['obj']
+    h = anno['height']
+    w = anno['width']
+    out_file = open(xmlfile[:-3]+'txt', 'w')
+    for obj in objs:
+        bb = calxyWH(obj[1:] , (h,w))
+        out_file.write(obj[0] + " " + " ".join([str(a) for a in bb]) + '\n')
 
 def main(imgtxtlist, namesfile):
-    classes = txt2list(namesfile)
     root = os.path.commonpath
     xmlpathlist = txt2list(imgtxtlist)
     xmlpathlist = chgext(xmlpathlist, '.xml')

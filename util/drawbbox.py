@@ -6,54 +6,57 @@ import random as rd
 from tqdm import tqdm
 from PIL import Image, ImageFont, ImageDraw
 from multiprocessing import Pool
+import asyncio as aio
+from filecontrol import pickFilename
+import sys
+
+sys.path.append(os.path.expanduser("~/host/nasrw/mk/mycode"))
+sys.path.append(os.path.expanduser("~/nasrw/mk/mycode"))
+from converter.annotation.voc2yolo import calxyWH
 
 rd.seed(31)
 
-def drawbbs(img, label, bbox, gt=False, fontscale=1, thick=1, color=(255,0,0)):
+def drawbbs(img, bbox, gt=False, thick=1, color=(255,0,0)):
     '''
     bbox = (left, top, right, bottom)
     '''
     assert gt in [False, 'dot', 'solid'], 'gt must be False:bool,\'dot\' or \'solid\''
-    bbox = list(map(int,bbox))
+    bbox = list(map(lambda coord: int(np.around(coord)),bbox))
     if gt:
         RoundRectangle(img, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, thick, linestyle=gt)
     else:
         cv2.rectangle(img, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, thick)
 
-    fontpath = "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf"     
-    font = ImageFont.truetype(fontpath, int(30*fontscale))
-    img_pil = Image.new('RGB', (int(600+fontscale),int(35*fontscale)))
-    draw = ImageDraw.Draw(img_pil)
-    w, h = draw.textsize(label, font=font)
-    text_y = bbox[1] - h
-    if text_y<0: text_y=0
-    # draw.rectangle((bbox[0], text_y, bbox[0]+w,text_y+h), fill=color, width=-1)
-    # draw.rectangle((bbox[0], text_y, bbox[0]+w,text_y+h), fill=color, width=thick)
-    # draw.text((bbox[0], text_y), label, font = font, fill = (0,0,0))
-    draw.rectangle((0, 0, w-1, h-1), fill=color, width=-1)
-    draw.rectangle((0, 0, w-1, h-1), fill=color, width=thick)
-    draw.text((0, 0), label, font = font, fill = (1,1,1))
-    img_pil = np.array(img_pil)
+    return img
 
+def drawlabel(img, label, bbox, fontscale=1, thick=1, color=(255,0,0)):
+    bbox = list(map(lambda coord: int(np.around(coord)),bbox))
+    #draw label
+    fontpath = "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf"     
+    font = ImageFont.truetype(fontpath, int(fontscale))
+    img_label = Image.new('RGB', (int(fontscale*100),int(fontscale*1.5)))
+    draw = ImageDraw.Draw(img_label)
+    w, h = draw.textsize(label, font=font)
+
+    draw.rectangle((0, 0, w-1, int(h*1.1)), fill=color, width=-1)
+    draw.rectangle((0, 0, w-1, int(h*1.1)), fill=color, width=thick)
+    draw.text((0, 0), label, font = font, fill = (1,1,1))
+    img_label = np.array(img_label)
+
+    text_y = bbox[1] - h #label 위치 조정
+    if text_y<0:
+        text_y=0
     img_shape = img.shape
-    label_idx = np.where(img_pil>0)
+    label_idx = np.where(img_label>0)
     label_idx_inImg = [label_idx[0]+text_y, label_idx[1]+bbox[0], label_idx[2]]
     for idx, val in enumerate(label_idx_inImg[:2]):
         out_range = np.where(val>=img_shape[idx])
         label_idx = [np.delete(i, out_range) for i in label_idx]
         label_idx_inImg = [np.delete(i, out_range) for i in label_idx_inImg]
-
-    img[tuple(label_idx_inImg)] = img_pil[tuple(label_idx)]
-    
-    # (w,h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_DUPLEX,fontscale,thick)
-    # text_y = bbox[1]
-    # if (bbox[1]-h)<0:
-    #     text_y = bbox[1]+h
-    # cv2.rectangle(img,(bbox[0], text_y), (bbox[0]+w,text_y+h), color,-1)
-    # cv2.rectangle(img,(bbox[0], text_y), (bbox[0]+w,text_y+h), color,thick)
-    # cv2.putText(img, label, (bbox[0], text_y), cv2.FONT_HERSHEY_DUPLEX,fontscale,(0,0,0),thickness=thick,bottomLeftOrigin=False)
+    img[tuple(label_idx_inImg)] = img_label[tuple(label_idx)]
 
     return img
+
 
 def RoundRectangle(img, topleft, bottomright, color, thick, linestyle='dot'):
     assert linestyle in ['dot', 'solid'], 'linestyle must be \'dot\' or \'solid\''
@@ -118,20 +121,25 @@ def dotline(img, topleft, bottomright, color, thick):
         x1 += 2*dx
         y1 += 2*dy
 
+
 if __name__ == "__main__":
-    # root = '/home/tm/nasrw/2D Object Detection_민군 작업 장소/2.트레이닝 사용 이미지/2DOD_민군_20200504_YOLOv4_1'
-    root = ''
-    gt_part = pd.read_csv('data/train_perObj_Crack_8_yolov3-voc_panorama_final_It0.5_ct0.25_200507-1755.csv', encoding='euc-kr')
-    df_class = gt_part['class'].unique()
+    root = os.path.expanduser('~/nasrw/mk/work_dataset/2DOD_defect_20200622_YOLOv2_1/')
+    form = 'yolo'
+
+    #perObj cvs
+    csv_path = os.path.expanduser('~/nasrw/mk/work_dataset/2DOD_defect_20200622_YOLOv2_1/test2_perObj_yolov2-voc_best_It0.5_ct0.25_200627-1215.csv')
+    subset = pickFilename(csv_path).split('_')[0]
+    perobj = pd.read_csv(csv_path, encoding='euc-kr')
+    df_class = perobj['class'].unique()
     class_count = len(df_class)
 
-    if not os.path.isdir(os.path.join(root,'data/gt')):
-        os.mkdir(os.path.join(root,'data/gt'))
-    if not os.path.isdir(os.path.join(root,'data/pred')):
-        os.mkdir(os.path.join(root,'data/pred'))
+    if not os.path.isdir(os.path.join(root,f"{subset}_gt")):
+        os.makedirs(os.path.join(root,f"{subset}_gt"))
+    if not os.path.isdir(os.path.join(root,f"{subset}_pred")):
+        os.makedirs(os.path.join(root,f"{subset}_pred"))
 
-    gt_bboxes = gt_part.loc[gt_part['id'].notna(), ['img', 'class', 'gt_left', 'gt_top', 'gt_right', 'gt_bottom']].set_index('img')
-    pred_bboxes = gt_part.loc[gt_part['conf'].notna(), ['img', 'class', 'pred_left', 'pred_top', 'pred_right', 'pred_bottom']].set_index('img')
+    gt_bboxes = perobj.loc[perobj['id'].notna(), ['img', 'class', 'gt_left', 'gt_top', 'gt_right', 'gt_bottom']].set_index('img')
+    pred_bboxes = perobj.loc[perobj['conf'].notna(), ['img', 'class', 'pred_left', 'pred_top', 'pred_right', 'pred_bottom']].set_index('img')
 
     color = {}
     for idx, cls in enumerate(df_class):
@@ -139,33 +147,59 @@ if __name__ == "__main__":
 
     print(color)
 
-    imgs = gt_part['img'].unique()
-    def run(img_path):
-        if img_path[0]!='/':
-            ori_img = cv2.imread(os.path.join(root, img_path))
+    imgs = perobj['img'].unique()
+    async def run(img_in_df):
+        loop = aio.get_event_loop()
+        if form=='yolo':
+            img_path = os.path.join(root,'..',img_in_df)
+        elif form=='voc':
+            img_path = os.path.join(root, img_in_df)
         else:
-            ori_img = cv2.imread(img_path)
+            raise
+        ori_img = await loop.run_in_executor(None, cv2.imread,img_path)
 
-        fontscale = max(ori_img.shape[:2])/6000
-        thick = int(fontscale*4)
+        fontscale = max(ori_img.shape[:2])*(10/250)
+        thick = int(max(ori_img.shape[:2])*(1/250))
         if thick <= 0: thick=1
 
         for bboxes in [gt_bboxes, pred_bboxes]:
             img = np.copy(ori_img)
             if id(bboxes)==id(gt_bboxes):
                 gt = 'dot'
-                save_folder = os.path.join(root,'data/gt')
+                save_folder = os.path.join(root, f"{subset}_gt")
             else:
                 gt = False
-                save_folder = os.path.join(root,'data/pred')
+                save_folder = os.path.join(root,f"{subset}_pred")
 
             try:
-                for _, val in bboxes.loc[[img_path],:].iterrows():
-                    img = drawbbs(img, val[0], val.iloc[1:].tolist(),gt=gt, fontscale=fontscale, thick=thick, color=color[val[0]])
-                cv2.imwrite(f'{save_folder}/{os.path.basename(img_path)}', img)
-            except KeyError:
+                for _, val in bboxes.loc[[img_in_df],:].iterrows():
+                    img = drawbbs(img,val.iloc[1:].tolist(), gt=gt, thick=thick, color=color[val[0]])
+                    if val[0]=='Crater':
+                        img = drawlabel(img, f'{val[0]} S={0.7854*(val.iloc[3]-val.iloc[1])*(val.iloc[4]-val.iloc[2])}', val.iloc[1:].tolist(), fontscale=fontscale, thick=thick, color=color[val[0]])
+                        #bounding box의 중심과 가로세로 크기 계산
+                        xyWH = tuple((calxyWH(val.iloc[1:].tolist(), img.shape[:2]) * np.tile(img.shape[:2][::-1], 2)).astype(int))
+                        #타원 그리기
+                        overlay = np.zeros(img.shape)
+                        overlay = cv2.ellipse(overlay, xyWH[:2], tuple(map(lambda x: x//2, xyWH[2:])), 0, 0, 360, color[val[0]], thickness=-1)
+                        #겹치기
+                        pos = np.where(overlay>0)
+                        img[pos] = (img[pos]*0.5 + overlay[pos]*0.5).astype(np.int8)
+                    else:
+                        img = drawlabel(img, val[0], val.iloc[1:].tolist(), fontscale=fontscale, thick=thick, color=color[val[0]])
+
+
+                await loop.run_in_executor(None, cv2.imwrite,f'{save_folder}/{os.path.basename(img_path)}', img)
+            except KeyError as e:
                 # cv2.imwrite(f'{save_folder}/{os.path.basename(img_path)}', img)
                 pass
 
-    with Pool(16) as p:
-        r = list(tqdm(p.imap(run, imgs), total=len(imgs)))
+    # with Pool() as p:
+    #     r = list(tqdm(p.imap(run, imgs), total=len(imgs)))
+
+    async def exe():
+        tasks=[]
+        for img in tqdm(imgs):
+            tasks.append(run(img))
+        await aio.gather(*tasks)
+
+    aio.run(exe())

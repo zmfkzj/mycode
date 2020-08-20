@@ -1,41 +1,50 @@
 import pandas as pd
 import numpy as np
+from pandas import read_csv
 from util.filecontrol import *
+from converter.annotation.voc2yolo import calxyWH
+from converter.annotation.yolo2voc import calLTRB
 from sklearn.metrics import average_precision_score
 from os.path import isfile, join, basename
 import time
-import datetime as dt
 from itertools import product, chain
 from collections import defaultdict
 import datetime as dt
 import xml.etree.ElementTree as ET
+from typing import *
+from glob import glob
+import re
+from tqdm import tqdm
+from multiprocessing import Pool
 
-load_csv = lambda path: pd.read_csv(path, encoding='euc-kr')
+forms = ['yolo', 'voc']
 
-def save_csv_yolo(df, path, root, **kwargs):
-    df.to_csv(join(root, 'data', path), encoding='euc-kr', index=False)
+def load_csv(path):
+    try:
+        df = pd.read_csv(path, encoding='euc-kr')
+    except:
+        df = pd.read_csv(path, encoding='utf-8')
+    return df
 
-def save_csv_voc(df, path, root, **kwargs):
+def save_csv(df, path, root, **kwargs):
     df.to_csv(join(root, path), encoding='euc-kr', index=False)
 
 def run_detection(function, imgtxtpath, detection_time, configPath, weightPath, root='', **kwargs):
     pathlist = txt2list(imgtxtpath)
     subset = pickFilename(imgtxtpath)
-    pred = pd.DataFrame()
     starttime = time.time()
     pred = pd.DataFrame()
     img_count = len(pathlist)
     for idx, imgpath in enumerate(pathlist):
-        path = join(root, imgpath)
-        print(f'{idx}/{img_count}','\t', path)
-        result, img_W, img_H = function(path)
+        print(f'{idx}/{img_count}','\t', imgpath)
+        result, img_W, img_H = function(imgpath)
         runtime = time.time()-starttime
         starttime = time.time()
         print("pred time : {}".format(runtime))
-        pred_sub = get_pred(result, path, (img_W, img_H), runtime, model='yolo')
+        pred_sub = get_pred(result, imgpath, (img_W, img_H), runtime, model='yolo')
         pred = pred.append(pred_sub)
     weight = pickFilename(weightPath).split('_')[-1]
-    save_csv_yolo(pred, f'{subset}_pred_{pickFilename(configPath)}_{weight}_{detection_time}.csv', root=root)
+    save_csv(pred, f'{subset}_pred_{pickFilename(configPath)}_{weight}_{detection_time}.csv', root=root)
     return pred
 
 def get_pred(pred, img_path, img_size, runtime, model='yolo'):
@@ -58,51 +67,32 @@ def get_pred(pred, img_path, img_size, runtime, model='yolo'):
     pred['runtime'] = runtime
     return pred
 
-def calLTRB(yolobbox):
-    #calculate Left, Top, Right, Bottom
-    x, y, w, h = yolobbox
-    xExtent = w/2.
-    yExtent = h/2.
-    L = x-xExtent
-    R = x+xExtent
-    T = y-yExtent
-    B = y+yExtent
-    LTRB = np.array([L, T, R, B])
-    return LTRB
-
-def calxyWH(ltbr_bbox, img_size):
-    '''
-    ltbr_bbox = (left, top, right, bottom)
-    img_size = (H, W)
-
-    '''
-    l, t, r, b = ltbr_bbox
-    dh = 1./img_size[0]
-    dw = 1./img_size[1]
-    x = (l + r)/2.0
-    y = (t + b)/2.0
-    w = r - l
-    h = b - t
-    xywh = np.array([x*dw, y*dh, w*dw, h*dh])
-    return xywh
-
-
-def process_pred(pred):
-    if isinstance(pred,str):
-        if isfile(pred):
-            pred = load_csv(pred)
-        else:
-            print('check predict file path')
-    # pred = pred.reset_index().rename(columns={'index':'pred_id'})
-    pred = pred.reset_index(drop=True)
+def process_pred(pred_data:Union[str, pd.DataFrame], form='yolo', **kwargs):
+    assert form in forms, '데이터셋 양식을 확인하세요.'
+    if isinstance(pred_data,str):
+        try:
+            pred = load_csv(pred_data)
+        except FileNotFoundError as e:
+            print(e)
+            print('파일의 경로를 확인하세요.')
+    else:
+        pred = pred_data
+    pred = pred.reset_index().rename(columns={'index':'pred_id'})
+    # pred = pred.reset_index(drop=True)
     xyWH_cols = ['pred_x_center', 'pred_y_center', 'pred_W', 'pred_H']
+    LTRB_cols = ['pred_left', 'pred_top', 'pred_right', 'pred_bottom']
 
-    LTRB = pred[xyWH_cols].apply(calLTRB, axis=1)
-    LTRB_table = pd.DataFrame(list(LTRB.values),columns=['pred_left','pred_top','pred_right','pred_bottom']).apply(np.around).astype('int')
+    if form=='yolo':
+        LTRB = pred[xyWH_cols].apply(calLTRB, axis=1)
+        LTRB_table = pd.DataFrame(list(LTRB.values),columns=LTRB_cols)
+        pred[xyWH_cols] = pred[xyWH_cols] / pred[['img_W','img_H']*2].values
 
-    pred[xyWH_cols] = pred[xyWH_cols] / pred[['img_W','img_H']*2].values
-    
-    pred_part = pd.concat([pred, LTRB_table], axis=1)
+        pred_part = pd.concat([pred, LTRB_table], axis=1)
+    elif form=='voc':
+        xyWH = pred[LTRB_cols+['img_W', 'img_H']].apply(lambda row: calxyWH(row[LTRB_cols],row[['img_H', 'img_W']]), axis=1)
+        xyWH_table = pd.DataFrame(list(xyWH.values),columns=xyWH_cols)
+
+        pred_part = pd.concat([pred, xyWH_table], axis=1)
     return pred_part
 
 def loadbbox(annofile, form='txt'):
@@ -141,7 +131,7 @@ def get_gt(file_list, form, root, **kwargs):
     LTRB_cols = ['gt_left', 'gt_top', 'gt_right', 'gt_bottom']
     for filename in files:
         if form=='yolo':
-            anno = join(root, chgext(filename, '.txt'))
+            anno = os.path.join(root, '..', chgext(filename, '.txt'))
 
             if isfile(anno):
                 gtInimg = loadbbox(anno, 'txt')
@@ -154,35 +144,36 @@ def get_gt(file_list, form, root, **kwargs):
                     gt_sub['img_W'] = file_list.loc[file_list['img']==filename, 'img_W'].iloc[0]
                     gt_sub['img_H'] = file_list.loc[file_list['img']==filename, 'img_H'].iloc[0]
                 elif isinstance(file_list, list):
-                    img = cv2.imread(join(root, filename))
+                    img = cv2.imread(os.path.join(root, '..', filename))
                     imgsize = img.shape
                     gt_sub['img_W'] = imgsize[1]
                     gt_sub['img_H'] = imgsize[0]
-            else:
-                anno = join(root, chgext(filename, '.xml'))
-                if isfile(anno):
-                    gtInimg = loadbbox(anno, 'xml')
-                    gt_sub = pd.DataFrame(gtInimg, columns=['class', *LTRB_cols, 'img_W', 'img_H'])
-                    gt_sub[LTRB_cols] = gt_sub[LTRB_cols].astype('int')
-                    if isfile(join(root, filename)):
-                        gt_sub['img'] = filename
+            elif isfile(anno:=os.path.join(root, '..', chgext(filename, '.txt'))):
+                gtInimg = loadbbox(anno, 'xml')
+                gt_sub = pd.DataFrame(gtInimg, columns=['class', *LTRB_cols, 'img_W', 'img_H'])
+                gt_sub[LTRB_cols] = gt_sub[LTRB_cols]
+                if isfile(filename):
+                    gt_sub['img'] = filename
 
         elif form=='voc':
+            filename = pickFilename(filename)
             anno = join(root, f'Annotations/{filename}.xml')
             if isfile(anno):
                 gtInimg = loadbbox(anno, 'xml')
                 gt_sub = pd.DataFrame(gtInimg, columns=['class', *LTRB_cols, 'img_W', 'img_H'])
-                gt_sub[LTRB_cols] = gt_sub[LTRB_cols].astype('int')
+                gt_sub[LTRB_cols] = gt_sub[LTRB_cols]
                 if isfile(join(root,f'JPEGImages/{filename}.jpg')):
                     gt_sub['img'] = f'JPEGImages/{filename}.jpg'
                 elif isfile(join(root,f'JPEGImages/{filename}.png')):
                     gt_sub['img'] = f'JPEGImages/{filename}.png'
+        else:
+            gt_sub = pd.DataFrame()
 
         gt = gt.append(gt_sub, ignore_index=False)
     return gt
 
 def process_gt(file_list, subset:str, root, form='yolo', **kwargs):
-    assert form in ['yolo', 'voc'], 'form arg is yolo or voc'
+    assert form in forms, '데이터셋 양식을 확인하세요.'
     '''
     file_list is predpart:DataFrame or list of img path
     '''
@@ -206,7 +197,7 @@ def process_gt(file_list, subset:str, root, form='yolo', **kwargs):
         LTRB = gt[xyWH_cols].apply(calLTRB, axis=1)
         LTRB_table = pd.DataFrame(list(LTRB.values),columns=ltrb_cols)
         gt_part = pd.concat([gt, LTRB_table], axis=1)
-        gt_part[ltrb_cols] = (gt_part[ltrb_cols] * gt_part[['img_W','img_H']*2].values).apply(np.around).astype('int')
+        gt_part[ltrb_cols] = (gt_part[ltrb_cols] * gt_part[['img_W','img_H']*2].values)
         return gt_part
 
     if form=='yolo':
@@ -214,11 +205,13 @@ def process_gt(file_list, subset:str, root, form='yolo', **kwargs):
             gt_part = process_txt(gt)
         else:
             gt_part = process_xml(gt)
-        save_csv_yolo(gt_part, f'gtpart_{subset}.csv', root)
+        save_csv(gt_part, f'gtpart_{subset}.csv', root)
 
     elif form=='voc':
         gt_part = process_xml(gt)
-        save_csv_voc(gt_part, f'gtpart_{subset}.csv', root)
+        save_csv(gt_part, f'gtpart_{subset}.csv', root)
+    else:
+        gt_part = pd.DataFrame()
 
 
 
@@ -228,36 +221,58 @@ def IOU(Bbox1, Bbox2):
     '''
     Bbox = (left, top, right, bottom)
     '''
-    gtW_range = set(range(Bbox1[0], Bbox1[2]+1))
-    gtH_range = set(range(Bbox1[1], Bbox1[3]+1))
-    predW_range = set(range(Bbox2[0], Bbox2[2]+1))
-    predH_range = set(range(Bbox2[1], Bbox2[3]+1))
+    # intersection_x = max([0, ((Bbox1[2]-Bbox1[0])+(Bbox2[2]-Bbox2[0])-np.abs(Bbox1[0]-Bbox2[0])-np.abs(Bbox1[2]-Bbox2[2]))/2])
+    # intersection_y = max([0, ((Bbox1[3]-Bbox1[1])+(Bbox2[3]-Bbox2[1])-np.abs(Bbox1[1]-Bbox2[1])-np.abs(Bbox1[3]-Bbox2[3]))/2])
 
-    W_intersection = gtW_range & predW_range
-    H_intersection = gtH_range & predH_range
 
-    Area1 = (Bbox1[2]+1-Bbox1[0])*(Bbox1[3]+1-Bbox1[1])
-    Area2 = (Bbox2[2]+1-Bbox2[0])*(Bbox2[3]+1-Bbox2[1])
-    intersectionArea = len(W_intersection)*len(H_intersection)
+    # Area1 = (Bbox1[2]-Bbox1[0])*(Bbox1[3]-Bbox1[1])
+    # Area2 = (Bbox2[2]-Bbox2[0])*(Bbox2[3]-Bbox2[1])
+    # intersectionArea = intersection_x*intersection_y
+
+    # iou = intersectionArea / (Area1+Area2-intersectionArea)
+    Bbox2 = Bbox2.transpose()
+    intersection_x = np.maximum(0, ((Bbox1[:,[ 2 ]]-Bbox1[:,[ 0 ]]) \
+        +(Bbox2[2,:]-Bbox2[0,:]) \
+        -np.abs(Bbox1[:,[ 0 ]]-Bbox2[0,:]) \
+        -np.abs(Bbox1[:,[ 2 ]]-Bbox2[2,:]))/2)
+    intersection_y = np.maximum(0, ((Bbox1[:,[ 3 ]]-Bbox1[:,[ 1 ]]) \
+        +(Bbox2[3,:]-Bbox2[1,:]) \
+        -np.abs(Bbox1[:,[ 1 ]]-Bbox2[1,:]) \
+        -np.abs(Bbox1[:,[ 3 ]]-Bbox2[3,:]))/2)
+
+
+    Area1 = ((Bbox1[:,2]-Bbox1[:,0])*(Bbox1[:,3]-Bbox1[:,1])).reshape((-1,1))
+    Area2 = (Bbox2[2,:]-Bbox2[0,:])*(Bbox2[3,:]-Bbox2[1,:])
+    intersectionArea = intersection_x*intersection_y
 
     iou = intersectionArea / (Area1+Area2-intersectionArea)
     return iou
 
 def to_perObj(pred_part, imgtxtpath, detection_time, IOU_thresh=0.5, conf_thresh=0.25, load_gt_part=None, root='', **kwargs):
-    namesfile = kwargs['namesfile']
+    # namesfile = kwargs['namesfile']
     configPath = pickFilename(kwargs['configPath'])
     weight = pickFilename(kwargs['weightPath']).split('_')[-1]
 
     subset = pickFilename(imgtxtpath)
-    if load_gt_part==None:
+    # if load_gt_part==None:
+    if not os.path.isfile(gtpart_path:=os.path.join(root, f'gtpart_{subset}.csv')):
         gt_part = process_gt(pred_part, subset, root, **kwargs)
     else:
-        gt_part = pd.read_csv(load_gt_part)
+        gt_part = load_csv(gtpart_path)
     matching_result = matching(pred_part, gt_part, IOU_thresh, conf_thresh)
     eval_condition(matching_result)
-    save_csv_yolo(matching_result, f'{subset}_perObj_{configPath}_{weight}_It{IOU_thresh}_ct{conf_thresh}_{detection_time}.csv', root)
+    if kwargs['form'] =='yolo':
+        save_csv(matching_result, f'{subset}_perObj_{configPath}_{weight}_It{IOU_thresh}_ct{conf_thresh}_{detection_time}.csv', root)
+    elif kwargs['form'] =='voc':
+        save_csv(matching_result, f'{subset}_perObj_{configPath}_{weight}_It{IOU_thresh}_ct{conf_thresh}_{detection_time}.csv', root)
     return matching_result
 
+def ar_val_co(iou):
+    # argmax = np.argmax(iou, axis=1)[np.any(~np.isneginf(iou), axis=1)]
+    argmax = np.argmax(iou, axis=1)
+    argmax = np.where(np.any(~np.isneginf(iou), axis=1), argmax, -1)
+    values, counts = np.unique(argmax[argmax!=-1], return_counts=True)
+    return argmax, values, counts
 
 def matching(pred_part, gt_part, IOU_thresh, conf_thresh):
     pred_ltrb = ['pred_left','pred_top','pred_right','pred_bottom']
@@ -268,19 +283,31 @@ def matching(pred_part, gt_part, IOU_thresh, conf_thresh):
     
 
     for img in pred_part['img'].unique():
-        for cat in pred_part['class'].unique():
-            row_condition = (pred_part['img']==img) & (pred_part['class']==cat)
-            pred = pred_part.loc[row_condition]
-            for index,value in gt_part.loc[(gt_part['img']==img) & (gt_part['class']==cat)].iterrows():
-                GTBbox = value[gt_ltrb]
-                iou = pred[pred_ltrb].apply(lambda predBbox: IOU(GTBbox, predBbox),axis=1)
-                # iou = pd.Series(iou, index=pred['pred_id'])
-                if not (iou.count() == 0).all():
-                    iouidx = iou.idxmax()
-                    ioumax = iou.max()
-                    if ((IOU_thresh <= ioumax) & (ioumax > pred.fillna(-1).loc[iouidx, 'IoU'].item())):
-                        pred_part.loc[iouidx, 'id'] = gt_part.loc[index,'id']
-                        pred_part.loc[iouidx, 'IoU'] = ioumax
+        inter_classes = set(pred_part.loc[pred_part['img']==img, 'class'].unique()) & set(gt_part.loc[gt_part['img']==img, 'class'].unique())
+        for cls in inter_classes:
+            gt_bbox = gt_part.loc[(gt_part['img']==img) & (gt_part['class']==cls), gt_ltrb]
+            pred_bbox = pred_part.loc[(pred_part['img']==img) & (pred_part['class']==cls), pred_ltrb]
+            iou = IOU(pred_bbox.to_numpy(), gt_bbox.to_numpy())
+            # row_condition = (pred_part['img']==img) & (pred_part['class']==cls)
+            # for index,value in gt_part.loc[(gt_part['img']==img) & (gt_part['class']==cls)].iterrows():
+            #     GTBbox = value[gt_ltrb]
+            #     iou = pred_part.loc[row_condition, pred_ltrb].apply(lambda predBbox: IOU(GTBbox, predBbox),axis=1)
+            #     if not (iou.count() == 0).all():
+            #         iouidx = iou.idxmax()
+            #         ioumax = iou.max()
+            #         if ((IOU_thresh <= ioumax) & (ioumax > pred_part.loc[row_condition].fillna(-1).loc[iouidx, 'IoU'].item())):
+            #             pred_part.loc[iouidx, 'id'] = gt_part.loc[index,'id']
+            #             pred_part.loc[iouidx, 'IoU'] = ioumax
+            argmax, values, counts = ar_val_co(iou)
+            while (counts_max:=np.max(counts))>1:
+                duple_idx=np.max(values[counts==counts_max])
+                iou[(argmax==duple_idx)&(np.arange(argmax.size)!=np.argmax(iou[:, duple_idx])),duple_idx] = -np.inf
+                argmax, values, counts = ar_val_co(iou)
+            iou = np.max(iou, axis=1)
+            iou[iou<IOU_thresh] = np.nan
+            pred_part.loc[(pred_part['img']==img) & (pred_part['class']==cls), 'IoU'] = iou
+            gt_id = gt_part.loc[(gt_part['img']==img) & (gt_part['class']==cls), 'id']
+            pred_part.loc[(pred_part['img']==img) & (pred_part['class']==cls), 'id'] = np.where(~np.isnan(iou), gt_id.values[argmax], np.nan)
 
     matching_result = pd.merge(pred_part, gt_part, how='outer')
     return matching_result
@@ -319,6 +346,9 @@ def to_other(perObj, imgtxtpath, detection_time, IOU_thresh, conf_thresh, root, 
     numeric_cols = ['min', 'mean','max','std','median']
 
     evals = pd.get_dummies(perObj['eval']).replace({0:np.nan})
+    will_add_evals_col = list(filter(lambda eval_elm: eval_elm not in evals.columns.tolist(), ['TP', 'FP', 'FN']))
+    for add_col in will_add_evals_col:
+        evals[add_col] = np.nan
     perObj = pd.concat([perObj.drop(columns='eval'), evals], axis=1)
     perOther = {}
     for other, cols in common_cols.items():
@@ -346,14 +376,15 @@ def to_other(perObj, imgtxtpath, detection_time, IOU_thresh, conf_thresh, root, 
         chg_colname(perOther_table)
 
         if other=='perDataset':
-            img_count_perDataset = perOther['perImg'][['class', 'img']].groupby('class').count()
+            img_union_count_perDataset = perOther['perImg'][['class', 'img']].groupby('class').count().rename(columns={'img':'img_union_count'})
+            img_gt_count_perDataset = perOther['perImg'].loc[perOther['perImg']['gt_count']!=0, ['class', 'img']].groupby('class').count().rename(columns={'img':'img_gt_count'})
+            img_pred_count_perDataset = perOther['perImg'].loc[perOther['perImg']['pred_count']!=0, ['class', 'img']].groupby('class').count().rename(columns={'img':'img_pred_count'})
             runtime_perDataset = perOther['perImg'][['class', 'runtime']].groupby('class').agg(numeric_cols+['sum'])
             chg_colname(runtime_perDataset)
             img_size_perDataset = perOther['perImg'][['class','img_W', 'img_H']].groupby('class').agg(numeric_cols)
             chg_colname(img_size_perDataset)
-            etc_perDataset = pd.concat([img_count_perDataset, runtime_perDataset, img_size_perDataset], axis=1).reset_index()
+            etc_perDataset = pd.concat([img_gt_count_perDataset, img_pred_count_perDataset, img_union_count_perDataset, runtime_perDataset, img_size_perDataset], axis=1).reset_index().rename(columns={'index':'class'})
             perOther_table = pd.merge(perOther_table, etc_perDataset)
-            perOther_table.rename(columns={'img':'img_count'}, inplace=True)
         elif other=='perImg':
             perOther_table.rename(columns={'runtime_max':'runtime','img_W_max':'img_W','img_H_max':'img_H'}, inplace=True)
 
@@ -366,23 +397,44 @@ def to_other(perObj, imgtxtpath, detection_time, IOU_thresh, conf_thresh, root, 
         F1 = (2*recall*precision / (recall+precision)).rename('F1-Score')
 
         table = pd.concat([table, recall, precision, F1], axis=1)
-        save_csv_yolo(table, f'{subset}_{other}_{configPath}_{weight}_It{IOU_thresh}_ct{conf_thresh}_{detection_time}.csv', root)
+        save_csv(table, f'{subset}_{other}_{configPath}_{weight}_It{IOU_thresh}_ct{conf_thresh}_{detection_time}.csv', root)
 
-if __name__ == "__main__":
-    pred_file = 'data/valid_pred_yolov4_best_200506-1624.csv'
-    pred_file_split = basename(pred_file).split('_')
-    root = ''
+def run(pred_file):
+    pred_file_split = pickFilename(pred_file).split('_')
+    if re.match('.*[/]VOC[0-9/]{5}.*', pred_file):
+        form='voc'
+    else:
+        form='yolo'
     arg = { 'IOU_thresh' : 0.5,
-            'conf_thresh' : 0.1,
+            'conf_thresh' : 0.25,
             'imgtxtpath' : f'{pred_file_split[0]}.txt',
             'configPath' : f"{pred_file_split[2]}.cfg", 
             'weightPath' : f"{pred_file_split[3]}.weights", 
             'detection_time' : pred_file_split[4],
-            'root': root}
+            'root': os.path.join(os.path.split(pred_file)[0]),
+            'form': form}
+    arg['namesfile'] = f"{arg['root']}/obj.names"
 
-    pred = pd.read_csv(pred_file, encoding='euc-kr')
-    perObj_predpart = process_pred(pred)
-    perObj = to_perObj(perObj_predpart, "data/obj.names", **arg)
+    pred = load_csv(pred_file)
+    perObj_predpart = process_pred(pred, **arg)
+    perObj = to_perObj(perObj_predpart, **arg)
     to_other(perObj, **arg)
 
-    get_gt('data/test.txt')
+if __name__ == "__main__":
+    #pred csv file
+    pred_file = os.path.expanduser('~/nasrw/mk/work_dataset/2DOD_defect_20200711_Meta-RCNN_1/VOC2007/trainval_pred_MRCN_1-100-263_200717-1449.csv')
+    run(pred_file)
+    
+    # defect_work_path = os.path.expanduser('~/nasrw/mk/work_dataset')
+    # defect_work_dirs = glob(os.path.expanduser('~/nasrw/mk/work_dataset/2DOD_defect_20200713_Meta-RCNN_1'))
+
+    # pred_files = []
+    # for dir in defect_work_dirs:
+    #     for p, ds, fs in os.walk(dir):
+    #         if fs:
+    #             for f in fs:
+    #                 if re.match('.*_pred_.*csv', f):
+    #                     pred_files.append(os.path.join(p,f))
+    
+    # with Pool() as p:
+    #     list(tqdm(p.imap(run, pred_files), total=len(pred_files)))
