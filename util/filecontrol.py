@@ -8,7 +8,7 @@ from typing import *
 
 def txt2list(txtpath):
     #텍스트 파일의 내용을 리스트로 만들기
-    with open(txtpath, 'r') as f:
+    with open(txtpath, 'r', encoding='utf-8') as f:
         filelist = f.readlines()
     filelist = [path.rstrip('\n') for path in filelist]
     filelist = [path for path in filelist if path]

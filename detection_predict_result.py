@@ -16,6 +16,7 @@ from glob import glob
 import re
 from tqdm import tqdm
 from multiprocessing import Pool
+import errno
 
 forms = ['yolo', 'voc']
 
@@ -29,7 +30,7 @@ def load_csv(path):
 def save_csv(df, path, root, **kwargs):
     df.to_csv(join(root, path), encoding='euc-kr', index=False)
 
-def run_detection(function, imgtxtpath, detection_time, configPath, weightPath, root='', **kwargs):
+def run_detect(function, imgtxtpath, detection_time, configPath, weightPath, root='', **kwargs):
     pathlist = txt2list(imgtxtpath)
     subset = pickFilename(imgtxtpath)
     starttime = time.time()
@@ -154,18 +155,26 @@ def get_gt(file_list, form, root, **kwargs):
                 gt_sub[LTRB_cols] = gt_sub[LTRB_cols]
                 if isfile(filename):
                     gt_sub['img'] = filename
+            else:
+                raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), anno)
 
         elif form=='voc':
-            filename = pickFilename(filename)
-            anno = join(root, f'Annotations/{filename}.xml')
+            # filename = pickFilename(filename)
+            # anno = join(root, f'Annotations/{filename}.xml')
+            anno = join(root, filename.replace('JPEGImages', 'Annotations'))
+            anno = chgext(anno, '.xml')
             if isfile(anno):
                 gtInimg = loadbbox(anno, 'xml')
                 gt_sub = pd.DataFrame(gtInimg, columns=['class', *LTRB_cols, 'img_W', 'img_H'])
                 gt_sub[LTRB_cols] = gt_sub[LTRB_cols]
-                if isfile(join(root,f'JPEGImages/{filename}.jpg')):
-                    gt_sub['img'] = f'JPEGImages/{filename}.jpg'
-                elif isfile(join(root,f'JPEGImages/{filename}.png')):
-                    gt_sub['img'] = f'JPEGImages/{filename}.png'
+                gt_sub['img'] = filename[filename.find('JPEGImages'):]
+                # if isfile(join(root,f'JPEGImages/{filename}.jpg')):
+                #     gt_sub['img'] = f'JPEGImages/{filename}.jpg'
+                # elif isfile(join(root,f'JPEGImages/{filename}.png')):
+                #     gt_sub['img'] = f'JPEGImages/{filename}.png'
+            else:
+                print(f'{anno}가 없습니다.')
+                continue
         else:
             gt_sub = pd.DataFrame()
 

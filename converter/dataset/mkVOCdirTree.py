@@ -26,29 +26,36 @@ def folder2list(root:str, extlist:Iterable, path=None) -> list:
         filelist.extend(filelist_)
     return filelist
 
+if os.path.isdir(newdir:='new_mkVocDirTree'):
+    shutil.rmtree(newdir)
 allfiles = folder2list('./', ('.xml', '.jpg', '.png', '.txt'))
 allfiles = list(map(lambda path: path.replace('\\', '/'), allfiles))
 # allfiles = map(lambda path: os.path.abspath(os.path.join('./',path)), allfiles)
-# newname = map(lambda x: x.replace(' ',''), allfiles)
-# newname = list(map(lambda x: x.replace(',','_'), newname))
+newname = map(lambda x: x.replace(' ',''), allfiles)
+newname = map(lambda x: x.replace(',','_'), newname)
+# newname = map(lambda x: x.decode('utf-8'), newname)
+newname = list(map(lambda x: os.path.join('new_mkVocDirTree',x), newname))
 
-# for (old, new) in zip(allfiles, newname):
-#     print(old, '\t', new)
-#     os.rename(old, new.encode('utf-8'))
+for (old, new) in zip(allfiles, newname):
+    print(old, '\t', new)
+    # os.rename(old, new.encode('utf-8'))
+    os.makedirs(os.path.split(new)[0], exist_ok=True)
+    shutil.copyfile(old, new)
 
-for name in allfiles:
-    os.rename(name, name.encode('utf-8'))
+# for name in allfiles:
+#     os.rename(name, name.encode('utf-8'))
 
-# xmlfiles = list(filter(lambda x: x.lower().endswith('.xml') , newname))
-xmlfiles = list(filter(lambda x: x.lower().endswith('.xml') , allfiles))
+xmlfiles = list(filter(lambda x: x.lower().endswith('.xml') , newname))
+# xmlfiles = list(filter(lambda x: x.lower().endswith('.xml') , allfiles))
 folders = ['VOC/ImageSets/Action', 'VOC/ImageSets/Layout', 'VOC/ImageSets/Main', 'VOC/ImageSets/Segmentation', 'VOC/Annotations']
+folders = map(lambda f: os.path.join(newdir, f), folders)
 for f in folders:
-    makedirs(f, exist_ok=True)
+    makedirs(f)
     if 'ImageSets' in f:
         with open(os.path.join(f, 'default.txt'), 'w', encoding='utf-8') as f:
             f.write('\n'.join(map(lambda x: f'{splitext(x)[0]}', xmlfiles)))
     else:
         for xml in xmlfiles:
             makedirs(os.path.join(f, os.path.split(xml)[0]), exist_ok=True)
-            shutil.copyfile(xml, os.path.join(f, xml))
+            shutil.move(xml, os.path.join(f, xml))
             print(xml)

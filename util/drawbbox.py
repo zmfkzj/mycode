@@ -1,3 +1,7 @@
+from os.path import *
+import sys
+sys.path.append(dirname(dirname(__file__)))
+
 import cv2
 import numpy as np
 import pandas as pd
@@ -7,8 +11,9 @@ from tqdm import tqdm
 from PIL import Image, ImageFont, ImageDraw
 from multiprocessing import Pool
 import asyncio as aio
-from filecontrol import pickFilename
+from util.filecontrol import pickFilename
 import sys
+import platform
 
 sys.path.append(os.path.expanduser("~/host/nasrw/mk/mycode"))
 sys.path.append(os.path.expanduser("~/nasrw/mk/mycode"))
@@ -21,6 +26,7 @@ def drawbbs(img, bbox, gt=False, thick=1, color=(255,0,0)):
     bbox = (left, top, right, bottom)
     '''
     assert gt in [False, 'dot', 'solid'], 'gt must be False:bool,\'dot\' or \'solid\''
+    color = color[::-1]
     bbox = list(map(lambda coord: int(np.around(coord)),bbox))
     if gt:
         RoundRectangle(img, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, thick, linestyle=gt)
@@ -30,9 +36,17 @@ def drawbbs(img, bbox, gt=False, thick=1, color=(255,0,0)):
     return img
 
 def drawlabel(img, label, bbox, fontscale=1, thick=1, color=(255,0,0)):
+    color = color[::-1]
     bbox = list(map(lambda coord: int(np.around(coord)),bbox))
     #draw label
-    fontpath = "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf"     
+    osname = platform.system()
+    if osname == 'Windows':
+        try:
+            fontpath = 'C:\\Users\\qlwla\\AppData\\Local\\Microsoft\\Windows\\Fonts\\NanumGothicBold.ttf'
+        except:
+            fontpath = 'C:\\Windows\\Fonts\\malgunbd.ttf'
+    else:
+        fontpath = "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf"     
     font = ImageFont.truetype(fontpath, int(fontscale))
     img_label = Image.new('RGB', (int(fontscale*100),int(fontscale*1.5)))
     draw = ImageDraw.Draw(img_label)

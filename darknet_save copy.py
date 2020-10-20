@@ -427,7 +427,7 @@ if __name__ == "__main__":
     detector = performDetect(initOnly= False, **arg)
     detector('',initOnly=True)
     print("init time : {}".format(time.time()-start))
-    pred = run_detection(detector, **arg)
+    pred = run_detect(detector, **arg)
 
     print("time : {}".format(time.time()-start))
     perObj_predpart = process_pred(pred)

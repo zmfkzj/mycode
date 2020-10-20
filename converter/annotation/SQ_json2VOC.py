@@ -8,6 +8,9 @@ from collections import defaultdict
 from converter.annotation.yolo2voc import create_file
 import cv2
 
+'''
+SQ로부터 받은 json 파일을 voc format의 xml 파일로 변환
+'''
 #-----------------------------------------
 root = osp.expanduser('~/host/nasrw/터널결함정보/SQ수령 이미지(20200805)-5차/1차(BBOX, SEGMENT) 샘플/Defects')
 jsonFiles = folder2list(root, extlist=['.json'])

@@ -5,7 +5,7 @@ import re
 from tqdm import tqdm
 from collections import defaultdict
 '''
-실험 결과 데이터 모으기
+predict 결과 데이터 모으기
 '''
 defect_work_path = os.path.expanduser('~/nasrw/mk/work_dataset')
 defect_work_dirs = glob(os.path.expanduser('~/nasrw/mk/work_dataset/2DOD_defect_*'))
