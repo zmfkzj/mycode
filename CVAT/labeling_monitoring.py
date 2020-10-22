@@ -9,16 +9,24 @@ from copy import deepcopy
 import datetime as dt
 
 #### FUNCTIONS ###
-def login(base_url,api_login,api_password):
-    print("Getting token...")
-    data_get = {'username': api_login,
-                'password': api_password}
-    r = requests.post(base_url + 'auth/login', data=data_get)
-    if r.ok:
-        cookies = dict(r.cookies)
-        return cookies
-    else:
-        print("HTTP %i - %s, Message %s" % (r.status_code, r.reason, r.text))
+def login():
+    while True:
+        print("Getting token...")
+        api_login,api_password, port = auth()
+        base_url = f"http://tmlabel.asuscomm.com:{port}/api/v1/"
+        data_get = {'username': api_login,
+                    'password': api_password}
+        try:
+            r = requests.post(base_url + 'auth/login', data=data_get, timeout=3)
+            checkConnect = r.ok
+        except:
+            checkConnect = False
+
+        if checkConnect:
+            cookies = dict(r.cookies)
+            return base_url, cookies
+        else:
+            print('로그인 실패')
 
 class AsyncList:
     def __init__(self, list):
@@ -96,17 +104,69 @@ async def getTaskMeta(taskUrl, cookies):
     else:
         print("HTTP %i - %s, Message %s" % (r.status_code, r.reason, r.text))
 
+async def run(base_url, cookies, ):
+    taskInfo = await getTasksInfo(base_url, cookies)
+    aio_tasks = dict()
+    datas = []
+    async def getData(key):
+        url = taskInfo['jobUrls'][key[3]]
+        annotations = (await getAnnotationInfo(url,cookies)).json()
+        for anno in annotations['tags']:
+            _key = list(key)
+            _key.append('tags')
+            _key.append(anno['frame'])
+            _key.append(taskInfo['labels'][anno['label_id']])
+            datas.append(_key)
+        for anno in annotations['shapes']:
+            _key = list(key)
+            _key.append(anno['type'])
+            _key.append(anno['frame'])
+            _key.append(taskInfo['labels'][anno['label_id']])
+            datas.append(_key)
+        for anno in annotations['tracks']:
+            for shape in anno['shapes']:
+                _key = list(key)
+                _key.append(shape['type'])
+                _key.append(anno['frame'])
+                _key.append(taskInfo['labels'][anno['label_id']])
+                datas.append(_key)
+
+    aio_tasks = []
+    for key in taskInfo['keys']:
+        aio_tasks.append(aio.create_task(getData(key)))
+
+    async for task in tqdm(aio_tasks):
+        await task
+
+    cols = ['project','task_id','task_name','job_id','label_type','frame','class']
+    df = pd.DataFrame(datas, columns=cols)
+    df['project'] = df['project'].fillna('default')
+    dfTaskClass = df[['task_id','task_name','job_id','label_type','class']].groupby(['task_id','task_name','class','label_type']).count().unstack(-2)
+    dfProjClass = df[['project','job_id','label_type','class']].groupby(['project','class','label_type']).count().unstack(level=-2)
+    dfTaskClass.columns = dfTaskClass.columns.droplevel(level=0)
+    dfProjClass.columns = dfProjClass.columns.droplevel(level=0)
+
+    dfTaskImg = df[['project','task_id','task_name','frame']].drop_duplicates(['project','task_id','frame']).groupby(['project','task_id','task_name']).count()
+    dfTaskImg.columns = ['isin']
+    dfTaskImg['image_size'] = dfTaskImg.index.droplevel(level=[0,-1]).map(taskInfo['taskFrameCount'])
+    dfTaskImg['not isin'] = dfTaskImg['image_size']-dfTaskImg['isin']
+
+    dfProjImg = dfTaskImg.groupby(['project']).sum()
+
+    time = dt.datetime.now(gettz('Asia/Seoul')).strftime('%y%m%d-%H%M')
+    dfTaskClass.to_csv(f'./{time}_CVAT-Class-Task.csv', encoding='euc-kr')
+    dfProjClass.to_csv(f'./{time}_CVAT-Class-Proj.csv', encoding='euc-kr')
+    dfTaskImg.to_csv(f'./{time}_CVAT-image-Task.csv', encoding='euc-kr')
+    dfProjImg.to_csv(f'./{time}_CVAT-image-Proj.csv', encoding='euc-kr')
+
+def auth():
+    api_login = input('id: ')
+    api_password = getpass('pass: ')
+    port = input('port: ')
+    return api_login, api_password, port
+
 async def main():
-    # api_login = input('id: ')
-    # api_password = getpass('pass: ')
-    # port = input('port: ')
-
-    api_login = 'serveradmin'
-    api_password = 'wnrWkd131@Cv'
-    port = '9100'
-    base_url = "http://tmlabel.asuscomm.com:9100/api/v1/"
-
-    cookies = login(base_url,api_login,api_password)
+    base_url, cookies = login()
     choice = None
     while choice != "0":
         print \
@@ -123,60 +183,7 @@ async def main():
         if choice == "0":
             print("Good bye!")  
         elif choice == "1":
-            # taskName, labels, jobUrls, keys = getTasksInfo(base_url, cookies)
-            taskInfo = await getTasksInfo(base_url, cookies)
-            aio_tasks = dict()
-            datas = []
-            async def asdf(key):
-                url = taskInfo['jobUrls'][key[3]]
-                annotations = (await getAnnotationInfo(url,cookies)).json()
-                for anno in annotations['tags']:
-                    _key = list(key)
-                    _key.append('tags')
-                    _key.append(anno['frame'])
-                    _key.append(taskInfo['labels'][anno['label_id']])
-                    datas.append(_key)
-                for anno in annotations['shapes']:
-                    _key = list(key)
-                    _key.append(anno['type'])
-                    _key.append(anno['frame'])
-                    _key.append(taskInfo['labels'][anno['label_id']])
-                    datas.append(_key)
-                for anno in annotations['tracks']:
-                    for shape in anno['shapes']:
-                        _key = list(key)
-                        _key.append(shape['type'])
-                        _key.append(anno['frame'])
-                        _key.append(taskInfo['labels'][anno['label_id']])
-                        datas.append(_key)
-
-            aio_tasks = []
-            for key in taskInfo['keys']:
-                aio_tasks.append(aio.create_task(asdf(key)))
-
-            async for task in tqdm(aio_tasks):
-                await task
-
-            cols = ['project','task_id','task_name','job_id','label_type','frame','class']
-            df = pd.DataFrame(datas, columns=cols)
-            df['project'] = df['project'].fillna('default')
-            dfTaskClass = df[['task_id','task_name','job_id','label_type','class']].groupby(['task_id','task_name','class','label_type']).count().unstack(-2)
-            dfProjClass = df[['project','job_id','label_type','class']].groupby(['project','class','label_type']).count().unstack(level=-2)
-            dfTaskClass.columns = dfTaskClass.columns.droplevel(level=0)
-            dfProjClass.columns = dfProjClass.columns.droplevel(level=0)
-
-            dfTaskImg = df[['project','task_id','task_name','frame']].drop_duplicates(['project','task_id','frame']).groupby(['project','task_id','task_name']).count()
-            dfTaskImg.columns = ['isin']
-            dfTaskImg['image_size'] = dfTaskImg.index.droplevel(level=[0,-1]).map(taskInfo['taskFrameCount'])
-            dfTaskImg['not isin'] = dfTaskImg['image_size']-dfTaskImg['isin']
-
-            dfProjImg = dfTaskImg.groupby(['project']).sum()
-
-            time = dt.datetime.now(gettz('Asia/Seoul')).strftime('%y%m%d-%H%M')
-            dfTaskClass.to_csv(f'./{time}_CVAT-Class-Task.csv', encoding='euc-kr')
-            dfProjClass.to_csv(f'./{time}_CVAT-Class-Proj.csv', encoding='euc-kr')
-            dfTaskImg.to_csv(f'./{time}_CVAT-image-Task.csv', encoding='euc-kr')
-            dfProjImg.to_csv(f'./{time}_CVAT-image-Proj.csv', encoding='euc-kr')
+            await run(base_url, cookies)
         else:
             print(" ### Wrong option ### ")
 
