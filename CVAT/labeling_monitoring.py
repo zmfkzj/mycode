@@ -135,8 +135,8 @@ async def run(base_url, cookies, ):
     for key in taskInfo['keys']:
         aio_tasks.append(aio.create_task(getData(key)))
 
-    async for task in tqdm(aio_tasks):
-        await task
+    async for aio_task in tqdm(aio_tasks, desc='jobs'):
+        await aio_task
 
     cols = ['project','task_id','task_name','job_id','label_type','frame','class']
     df = pd.DataFrame(datas, columns=cols)
