@@ -54,6 +54,7 @@ async def getTasksInfo(base_url, cookies):
         taskName = dict()
         labels = dict()
         jobUrls = dict()
+        jobSize = dict()
         keys = []
         taskFrameCount = dict()
 
@@ -66,6 +67,7 @@ async def getTasksInfo(base_url, cookies):
             for label in task['labels']:
                 labels[label['id']] = label['name']
             for job in task['segments']:
+                jobSize[job['jobs'][0]['id']] = job['stop_frame']-job['start_frame']+1
                 jobUrls[job['jobs'][0]['id']] = job['jobs'][0]['url']
                 _key = key+[job['jobs'][0]['id']]
                 keys.append(_key)
@@ -79,6 +81,7 @@ async def getTasksInfo(base_url, cookies):
                   'labels': labels,
                   'jobUrls': jobUrls,
                   'taskFrameCount': taskFrameCount,
+                  'jobSize': jobSize,
                   'keys': keys}
         return result
     else:
@@ -141,23 +144,60 @@ async def run(base_url, cookies, ):
     cols = ['project','task_id','task_name','job_id','label_type','frame','class']
     df = pd.DataFrame(datas, columns=cols)
     df['project'] = df['project'].fillna('default')
-    dfTaskClass = df[['task_id','task_name','job_id','label_type','class']].groupby(['task_id','task_name','class','label_type']).count().unstack(-2)
-    dfProjClass = df[['project','job_id','label_type','class']].groupby(['project','class','label_type']).count().unstack(level=-2)
-    dfTaskClass.columns = dfTaskClass.columns.droplevel(level=0)
-    dfProjClass.columns = dfProjClass.columns.droplevel(level=0)
 
-    dfTaskImg = df[['project','task_id','task_name','frame']].drop_duplicates(['project','task_id','frame']).groupby(['project','task_id','task_name']).count()
-    dfTaskImg.columns = ['isin']
-    dfTaskImg['image_size'] = dfTaskImg.index.droplevel(level=[0,-1]).map(taskInfo['taskFrameCount'])
-    dfTaskImg['not isin'] = dfTaskImg['image_size']-dfTaskImg['isin']
+    # 각 클래스에 해당하는 오브젝트 수
+    dfCountObjectJobClass = df[['project','task_id','task_name','job_id','label_type','class','frame']]\
+                            .groupby(['project','task_id','task_name','job_id','class','label_type']).count().unstack(-2)
+    dfCountObjectJobClass.columns = dfCountObjectJobClass.columns.droplevel(level=0)
 
-    dfProjImg = dfTaskImg.groupby(['project']).sum()
+    dfCountObjectTaskClass = df[['project','task_id','task_name','job_id','label_type','class']]\
+                            .groupby(['project','task_id','task_name','class','label_type']).count().unstack(-2)
+    dfCountObjectTaskClass.columns = dfCountObjectTaskClass.columns.droplevel(level=0)
 
+    # dfCountObjectProjClass = df[['project','job_id','label_type','class']].groupby(['project','class','label_type']).count().unstack(level=-2)
+    # dfCountObjectProjClass.columns = dfCountObjectProjClass.columns.droplevel(level=0)
+
+    dfCountObjectProjClass = dfCountObjectTaskClass.groupby(['project','label_type']).sum()
+
+    # 라벨링 된 이미지 수
+    dfCountImgJob = df[['project','task_id','task_name','job_id','frame']].drop_duplicates(['project','task_id','job_id','frame'])\
+                    .groupby(['project','task_id','task_name','job_id']).count()
+    dfCountImgJob.columns = ['isin']
+    dfCountImgJob['image_size'] = dfCountImgJob.index.droplevel(level=[0,1,2]).map(taskInfo['jobSize'])
+    dfCountImgJob['not isin'] = dfCountImgJob['image_size']-dfCountImgJob['isin']
+
+    dfCountImgTask = df[['project','task_id','task_name','frame']].drop_duplicates(['project','task_id','frame'])\
+                    .groupby(['project','task_id','task_name']).count()
+    dfCountImgTask.columns = ['isin']
+    dfCountImgTask['image_size'] = dfCountImgTask.index.droplevel(level=[0,-1]).map(taskInfo['taskFrameCount'])
+    dfCountImgTask['not isin'] = dfCountImgTask['image_size']-dfCountImgTask['isin']
+
+    dfCountImgProj = dfCountImgTask.groupby(['project']).sum()
+
+    # 각 클래스에 해당하는 이미지 수
+    dfCountImgJobClass = df[['project','task_id','task_name','job_id','label_type','class','frame']]\
+                         .drop_duplicates(['project','task_id','task_name','job_id','label_type','class','frame']) \
+                         .groupby(['project','task_id','task_name','job_id','class','label_type']).count().unstack(-2)
+    dfCountImgJobClass.columns = dfCountImgJobClass.columns.droplevel(level=0)
+
+    dfCountImgTaskClass = df[['project','task_id','task_name','label_type','class','frame']]\
+                         .drop_duplicates(['project','task_id','task_name','label_type','class','frame']) \
+                         .groupby(['project','task_id','task_name','class','label_type']).count().unstack(-2)
+    dfCountImgTaskClass.columns = dfCountImgTaskClass.columns.droplevel(level=0)
+
+    dfCountImgProjClass = dfCountImgTaskClass.groupby(['project','label_type']).sum()
+
+    # Save
     time = dt.datetime.now(gettz('Asia/Seoul')).strftime('%y%m%d-%H%M')
-    dfTaskClass.to_csv(f'./{time}_CVAT-Class-Task.csv', encoding='euc-kr')
-    dfProjClass.to_csv(f'./{time}_CVAT-Class-Proj.csv', encoding='euc-kr')
-    dfTaskImg.to_csv(f'./{time}_CVAT-image-Task.csv', encoding='euc-kr')
-    dfProjImg.to_csv(f'./{time}_CVAT-image-Proj.csv', encoding='euc-kr')
+    dfCountObjectJobClass.to_csv(f'./{time}_CVAT-Object-Class-Job.csv', encoding='euc-kr')
+    dfCountObjectTaskClass.to_csv(f'./{time}_CVAT-Object-Class-Task.csv', encoding='euc-kr')
+    dfCountObjectProjClass.to_csv(f'./{time}_CVAT-Object-Class-Proj.csv', encoding='euc-kr')
+    dfCountImgJob.to_csv(f'./{time}_CVAT-Image-Isin-Job.csv', encoding='euc-kr')
+    dfCountImgTask.to_csv(f'./{time}_CVAT-Image-Isin-Task.csv', encoding='euc-kr')
+    dfCountImgProj.to_csv(f'./{time}_CVAT-Image-Isin-Proj.csv', encoding='euc-kr')
+    dfCountImgJobClass.to_csv(f'./{time}_CVAT-Image-Class-Job.csv', encoding='euc-kr')
+    dfCountImgTaskClass.to_csv(f'./{time}_CVAT-Image-Class-Task.csv', encoding='euc-kr')
+    dfCountImgProjClass.to_csv(f'./{time}_CVAT-Image-Class-Proj.csv', encoding='euc-kr')
 
 def auth():
     api_login = input('id: ')
