@@ -1,4 +1,6 @@
+from typing import DefaultDict
 from dateutil.tz.tz import gettz
+from numpy.lib.function_base import bartlett
 import pandas as pd
 import asyncio as aio
 import requests
@@ -7,7 +9,8 @@ from getpass import getpass
 from tqdm.asyncio import tqdm
 from copy import deepcopy
 import datetime as dt
-import math
+from itertools import cycle
+import datetime as dt
 
 #### FUNCTIONS ###
 def login():
@@ -47,9 +50,20 @@ class AsyncList:
         else:
             raise StopAsyncIteration
 
-async def getTasksInfo(base_url, header_gs):
-    r = requests.get(base_url + "tasks", headers=header_gs, params={'page_size':1})
-    r = requests.get(base_url + "tasks", headers=header_gs, params={'page_size':r.json()['count']})
+def getTasksInfo(base_url, header_gs):
+    if debug:
+        projectId = 1
+    else:
+        projectId = input('projectID: ')
+    r = requests.get(base_url+f'projects/{projectId}', headers=header_gs)
+    if r.ok:
+        projectInfo = r.json()
+        projectName = projectInfo['name']
+    else:
+        print("HTTP %i - %s, Message %s" % (r.status_code, r.reason, r.text))
+        raise ConnectionError
+
+    r = requests.get(base_url+f'projects/{projectId}/tasks', headers=header_gs)
     if r.ok:
         taskName = dict()
         labels = dict()
@@ -57,14 +71,15 @@ async def getTasksInfo(base_url, header_gs):
         jobSize = dict()
         jobAssignee = dict()
         jobStatus = dict()
+        jobTaskId = dict()
         keys = []
         taskFrameCount = dict()
 
-        async def getInfo(task):
-            meta = await getTaskMeta(task['url'], header_gs)
-            taskFrameCount[task['id']] = meta['size']
+        for task in r.json()['results']:
+            # meta = await getTaskMeta(task['url'], header_gs)
+            taskFrameCount[task['id']] = task['size']
 
-            key = [task['project'],task['id'], task['name']]
+            key = [projectName,task['id'], task['name']]
             taskName[task['id']] = task['name']
             for label in task['labels']:
                 labels[label['id']] = label['name']
@@ -73,14 +88,10 @@ async def getTasksInfo(base_url, header_gs):
                 jobUrls[job['jobs'][0]['id']] = job['jobs'][0]['url']
                 jobAssignee[job['jobs'][0]['id']] = job['jobs'][0]['assignee']
                 jobStatus[job['jobs'][0]['id']] = job['jobs'][0]['status']
+                jobTaskId[job['jobs'][0]['id']] = task['id']
                 _key = key+[job['jobs'][0]['id']]
                 keys.append(_key)
 
-        aio_task = []
-        for task in r.json()['results']:
-            aio_task.append(aio.create_task(getInfo(task)))
-        await aio.gather(*aio_task)
-        # async for task in tqdm(AsyncList(r.json()['results']), desc='Task Info'):
         result = {'taskName': taskName,
                   'labels': labels,
                   'jobUrls': jobUrls,
@@ -88,10 +99,12 @@ async def getTasksInfo(base_url, header_gs):
                   'jobSize': jobSize,
                   'jobAssignee': jobAssignee,
                   'jobStatus': jobStatus,
+                  'jobTaskId': jobTaskId,
                   'keys': keys}
         return result
     else:
         print("HTTP %i - %s, Message %s" % (r.status_code, r.reason, r.text))
+        raise ConnectionError
 
 async def getAnnotationInfo(jobUrl, header_gs):
     loop = aio.get_event_loop()
@@ -102,17 +115,8 @@ async def getAnnotationInfo(jobUrl, header_gs):
     else:
         print("HTTP %i - %s, Message %s" % (r.status_code, r.reason, r.text))
 
-async def getTaskMeta(taskUrl, header_gs):
-    loop = aio.get_event_loop()
-    get = partial(requests.get, headers=header_gs)
-    r = await loop.run_in_executor(None, get, taskUrl + "/data/meta")
-    if r.ok:
-        return r.json()
-    else:
-        print("HTTP %i - %s, Message %s" % (r.status_code, r.reason, r.text))
-
 async def mkMonitoringFile(base_url, header_gs):
-    taskInfo = await getTasksInfo(base_url, header_gs)
+    taskInfo = getTasksInfo(base_url, header_gs)
     aio_tasks = dict()
     datas = []
     async def getData(key):
@@ -228,18 +232,116 @@ def registUser(base_url):
                 }
         r = requests.post(base_url + "auth/register", data=data)
 
-def assignLabeler(base_url, header_gs):
-    assignTable = pd.read_csv('assign.csv')
-    for assign in assignTable.itertuples():
-        if not math.isnan(assign.assignee):
-            r = requests.patch(base_url + f"jobs/{assign.job_id}", headers=header_gs, data={"assignee": int(assign.assignee)})
-            # r = requests.patch(base_url + f"jobs/{assign.job_id}", data={"assignee":assign.assignee})
-
-def getLabelerStatus(base_url, header_gs):
+def assignLabeler(base_url, header_gs, newAssignmentSize=1000):
+    labelerListDf = pd.read_csv("labeler_list.csv")
+    labelerList = labelerListDf.loc[labelerListDf['activate'].notna(), 'id']
+    assignPolicy(base_url, header_gs,*getClassCR(base_url, header_gs, labelerList, newAssignmentSize))
 
 
+def assignment2Df(dict_:dict, classCRProj, newAssignmentSize=1000):
+    seriesList = []
+    for key, val in dict_.items():
+        seriesList.append(pd.Series(val,name=key))
 
-def assignPolicy():
+    classAsnDf = pd.DataFrame(seriesList).T.fillna(0)
+    classAsnDf = classAsnDf.reindex(classCRProj.index, fill_value=0)
+    classAsnDf['Rate'] = classAsnDf['Count']/classAsnDf['Count'].sum()
+    newAssignmentTotal = newAssignmentSize-classAsnDf['annotation'].sum()
+    classAsnDf['newAssignmentTarget'] = (classAsnDf['Count'].sum()+newAssignmentTotal)*classCRProj['Rate']-classAsnDf['Count']
+    classAsnDf['newAssignmentActual'] = 0
+    return {"newAssignmentSize":newAssignmentTotal, 'data':classAsnDf}
+
+def getClassCR(base_url, header_gs, labelerList, newAssignmentSize=1000):
+    taskInfo = getTasksInfo(base_url, header_gs)
+
+    #project 전체의 이미지 수, 각 class의 비율
+    classCountProjBbox = DefaultDict(int)
+    classCountProjSeg = DefaultDict(int)
+    for taskId, count in taskInfo['taskFrameCount'].items():
+        uploadDate, labelType, labelClass = taskInfo['taskName'][taskId].split('_')
+        if labelType=='Bbox':
+            classCountProjBbox[f'{labelClass}'] += count
+        elif labelType=='Bbox':
+            classCountProjSeg[f'{labelClass}'] += count
+        else:
+            raise TypeError
+    classCountProjBbox = pd.Series(classCountProjBbox)
+    classRateProjBbox = classCountProjBbox/classCountProjBbox.sum()
+    classCRProjBbox = pd.DataFrame([classCountProjBbox,classRateProjBbox], index=['Count', 'Rate']).T
+    
+    classCountProjSeg = pd.Series(classCountProjSeg)
+    classRateProjSeg = classCountProjSeg/classCountProjSeg.sum()
+    classCRProjSeg = pd.DataFrame([classCountProjSeg,classRateProjSeg], index=['Count', 'Rate']).T
+    
+
+    #assignee가 할당된 job의 이미지 수, 각 class의 비율
+    classCountAsnlist = lambda : {'Bbox': {'Count':DefaultDict(int),
+                                           'annotation':DefaultDict(int), 
+                                           'validation':DefaultDict(int), 
+                                           'modification':DefaultDict(int), 
+                                           'completed':DefaultDict(int)},
+                                  'Seg' : {'Count':DefaultDict(int),
+                                           'annotation':DefaultDict(int), 
+                                           'validation':DefaultDict(int), 
+                                           'modification':DefaultDict(int), 
+                                           'completed':DefaultDict(int)}}
+    eachLabelerCR = DefaultDict(classCountAsnlist)
+    taskInfo['jobLabelType'] = dict()
+    taskInfo['jobLabelClass'] = dict()
+    for jobId, count in taskInfo['jobSize'].items():
+        assigneeName = taskInfo['jobAssignee'][jobId]
+        uploadDate, labelType, labelClass = taskInfo['taskName'][taskInfo['jobTaskId'][jobId]].split('_')
+        taskInfo['jobLabelType'][jobId] = labelType
+        taskInfo['jobLabelClass'][jobId] = labelClass
+        if assigneeName != None:
+            if labelType=='Bbox':
+                eachLabelerCR[assigneeName]['Bbox']['Count'][labelClass] += count
+                status =  taskInfo['jobStatus'][jobId]
+                eachLabelerCR[assigneeName]['Bbox'][status][labelClass] += count
+            elif labelType=='Seg':
+                eachLabelerCR[assigneeName]['Seg'][labelClass] += count
+                status =  taskInfo['jobStatus'][jobId]
+                eachLabelerCR[assigneeName]['Seg'][status][labelClass] += count
+            else:
+                raise TypeError
+    newEachLabelerCR = DefaultDict(dict)
+    for assignee in labelerList:
+        newEachLabelerCR[assignee]['Bbox'] = assignment2Df(eachLabelerCR[assignee]['Bbox'],classCRProjBbox, newAssignmentSize)
+        newEachLabelerCR[assignee]['Seg'] = assignment2Df(eachLabelerCR[assignee]['Seg'], classCRProjSeg, newAssignmentSize)
+
+    return taskInfo, newEachLabelerCR
+
+def assignPolicy(base_url, header_gs, taskInfo, eachLabelerCR):
+    labelers = cycle(list(eachLabelerCR.items()))
+    for jobId, assignee in taskInfo['jobAssignee'].items():
+        if (assignee == None):
+            loopStart = True
+            while True:
+                labeler, data = next(labelers)
+                if loopStart:
+                    labeler0 = labeler
+                    loopStart = False
+                    continue
+                if labeler0==labeler:
+                    break
+                if (data[taskInfo['jobLabelType'][jobId]]['newAssignmentSize']>0)&\
+                    (data[taskInfo['jobLabelType'][jobId]]['data'].loc[taskInfo['jobLabelClass'][jobId],'newAssignmentTarget'] >= 0):
+                    # requests.patch(base_url + f"jobs/{jobId}", headers=header_gs, data={"assignee": int(labeler)})
+                    data[taskInfo['jobLabelType'][jobId]]['newAssignmentSize'] -= taskInfo['jobSize'][jobId]
+                    data[taskInfo['jobLabelType'][jobId]]['data'].loc[taskInfo['jobLabelClass'][jobId],'newAssignmentTarget'] -= taskInfo['jobSize'][jobId]
+                    data[taskInfo['jobLabelType'][jobId]]['data'].loc[taskInfo['jobLabelClass'][jobId],'newAssignmentActual'] += taskInfo['jobSize'][jobId]
+                    taskInfo['jobAssignee'][jobId] = labeler
+                    break
+    export = []
+    for assignee, labelType in eachLabelerCR.items():
+        for type, data in labelType.items():
+            data['data']['assignee'] = assignee
+            data['data']['labelType'] = type
+            export.append(data['data'].reset_index())
+    exportDf = pd.concat(export, ignore_index=True)
+
+
+    return taskInfo
 
 
 async def main():
@@ -266,7 +368,7 @@ async def main():
         elif choice == "2":
             registUser(base_url)
         elif choice == "3":
-            assignLabeler(base_url, header_gs)
+            assignLabeler(base_url, header_gs, newAssignmentSize=1000)
         else:
             print(" ### Wrong option ### ")
 
