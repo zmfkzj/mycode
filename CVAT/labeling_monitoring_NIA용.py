@@ -1,57 +1,88 @@
-import os
+import schedule
 from typing import DefaultDict
 from dateutil.tz.tz import gettz
 import pandas as pd
 import asyncio as aio
 import requests
 from functools import partial
-from getpass import getpass
 from tqdm.asyncio import tqdm
-from copy import deepcopy
+from copy import Error, deepcopy
 import datetime as dt
 from itertools import cycle
-import datetime as dt
 import numpy as np
+import json
+from easydict import EasyDict
+import json
+from getpass import getpass
+import gspread as gs
+from apscheduler.schedulers.background import BackgroundScheduler
+from pytz import timezone
+
 
 #### FUNCTIONS ###
-def auth():
-    if not debug:
-        api_login = input('id: ')
-        api_password = getpass('pass: ')
-        port = input('port: ')
+def getBaseUrl():
+    if cfg.base_url.endswith('/'):
+        base_url = '{}api/v1/'.format(cfg['base_url'])
     else:
-        api_login = 'serveradmin'
-        print(api_login)
-        api_password = 'wnrWkd131@Cv'
-        port = 12280
-    return api_login, api_password, port
+        base_url = '{}/api/v1/'.format(cfg['base_url'])
+    return base_url
 
-def login():
+def getToken():
     while True:
         print("Getting token...")
-        api_login,api_password, port = auth()
-        base_url = f"http://tmlabel.duckdns.org:{port}/api/v1/"
-        data_get = {'username': api_login,
-                    'password': api_password}
+        # api_login = input('id: ')
+        # api_password = getpass('pass: ')
+        data_get = {'username': cfg.username,
+                    'password': cfg.password}
+
+        if cfg['base_url'].endswith('/'):
+            base_url = '{}api/v1/'.format(cfg['base_url'])
+        else:
+            base_url = '{}/api/v1/'.format(cfg['base_url'])
+
         try:
             r = requests.post(base_url + 'auth/login', data=data_get, timeout=3)
             checkConnect = r.ok
-        except:
+        except :
             checkConnect = False
+            print("HTTP %i - %s, Message %s" % (r.status_code, r.reason, r.text))
 
         if checkConnect:
             token = r.json()['key']
-            header_gs = {'Accept': 'application/json', 'Authorization': f'Token {token}'}
-            return base_url, header_gs
+            cfg['token'] = token
+            saveJson(cfg)
+            print('token이 config파일에 저장되었습니다. ')
+            return token
+
         else:
             print('로그인 실패')
 
-def getTasksInfo():
-    if debug:
-        projectId = 1
+def tokenCheck():
+    global cfg, header_gs
+    print('token check...',end=None)
+    r = requests.get(base_url+f'users/self', headers=header_gs)
+    if (not r.ok):
+        if r.reason == 'Unauthorized':
+            getToken()
+            cfg = EasyDict(readJson())
+            header_gs = {'Accept': 'application/json', 'Authorization': f'Token {cfg.token}'}
+        else:
+            print("HTTP %i - %s, Message %s" % (r.status_code, r.reason, r.text))
     else:
-        projectId = input('projectID: ')
-    r = requests.get(base_url+f'projects/{projectId}', headers=header_gs)
+        print('{} complete'.format(dt.datetime.now(gettz('Asia/Seoul'))))
+
+def readJson():
+    with open(path,'r') as f:
+        cfg = json.load(f)
+    return cfg
+
+def saveJson(jsonDict):
+    with open(path, 'w') as f:
+        json.dump(jsonDict, f,ensure_ascii=False, indent=4)
+
+def getTasksInfo():
+    global taskInfo
+    r = requests.get(base_url+f'projects/{cfg.projectId}', headers=header_gs)
     if r.ok:
         projectInfo = r.json()
         projectName = projectInfo['name']
@@ -59,7 +90,8 @@ def getTasksInfo():
         print("HTTP %i - %s, Message %s" % (r.status_code, r.reason, r.text))
         raise ConnectionError
 
-    r = requests.get(base_url+f'projects/{projectId}/tasks', headers=header_gs)
+    r = requests.get(base_url+f'projects/{cfg.projectId}/tasks', headers=header_gs)
+    r = requests.get(base_url+f'projects/{cfg.projectId}/tasks', headers=header_gs, params={'page_size':r.json()['count']})
     if r.ok:
         taskName = dict()
         labels = dict()
@@ -88,7 +120,7 @@ def getTasksInfo():
                 _key = key+[job['jobs'][0]['id']]
                 keys.append(_key)
 
-        result = {'taskName': taskName,
+        taskInfo = {'taskName': taskName,
                   'labels': labels,
                   'jobUrls': jobUrls,
                   'taskFrameCount': taskFrameCount,
@@ -99,16 +131,23 @@ def getTasksInfo():
                   'keys': keys}
 
         # Task name에서 type과 class 얻기
-        result['jobLabelType'] = dict()
-        result['jobLabelClass'] = dict()
-        for jobId, _ in result['jobSize'].items():
-            _, labelType, labelClass = result['taskName'][result['jobTaskId'][jobId]].split('_')
-            result['jobLabelType'][jobId] = labelType
-            result['jobLabelClass'][jobId] = labelClass
-        return result
+        taskInfo['jobLabelType'] = dict()
+        taskInfo['jobLabelClass'] = dict()
+        for jobId, _ in taskInfo['jobSize'].items():
+            _, labelType, labelClass = taskInfo['taskName'][taskInfo['jobTaskId'][jobId]].split('_')
+            taskInfo['jobLabelType'][jobId] = labelType
+            taskInfo['jobLabelClass'][jobId] = labelClass
+
+        print('{} get task info'.format(dt.datetime.now(gettz('Asia/Seoul'))))
     else:
         print("HTTP %i - %s, Message %s" % (r.status_code, r.reason, r.text))
         raise ConnectionError
+
+def getLabelerInfo():
+    global labelerInfo
+    print('get labler')
+    labelerInfo = pd.DataFrame(gc.open('log').worksheet('라벨러').get_all_records()).set_index('id')
+    print('{} get labeler info'.format(dt.datetime.now(gettz('Asia/Seoul'))))
 
 async def getAnnotationInfo(jobUrl):
     loop = aio.get_event_loop()
@@ -120,6 +159,7 @@ async def getAnnotationInfo(jobUrl):
         print("HTTP %i - %s, Message %s" % (r.status_code, r.reason, r.text))
 
 async def mkMonitoringFile():
+    getTasksInfo()
     aio_tasks = dict()
     datas = []
     async def getData(key):
@@ -196,7 +236,7 @@ async def mkMonitoringFile():
     dfCountImgProjClass = dfCountImgTaskClass.groupby(['project','label_type']).sum()
 
     # Save
-    time = dt.datetime.now(gettz('Asia/Seoul')).strftime('%y%m%d-%H%M')
+    time = dt.datetime.now(gettz('Asia/Seoul')).strftime(timeFormat)
     dfCountObjectJobClass.to_csv(f'./{time}_CVAT-Object-Class-Job.csv', encoding='euc-kr')
     dfCountObjectTaskClass.to_csv(f'./{time}_CVAT-Object-Class-Task.csv', encoding='euc-kr')
     dfCountObjectProjClass.to_csv(f'./{time}_CVAT-Object-Class-Proj.csv', encoding='euc-kr')
@@ -208,40 +248,58 @@ async def mkMonitoringFile():
     dfCountImgProjClass.to_csv(f'./{time}_CVAT-Image-Class-Proj.csv', encoding='euc-kr')
 
 def registUser():
-    labelerList = pd.read_csv("labeler_list.csv")
-    for labeler in labelerList.itertuples():
+    global labelerInfo
+    sheet = gc.open('log').worksheet('라벨러')
+    labelerInfo = pd.DataFrame(sheet.get_all_records())
+    cols = labelerInfo.columns
+    labelerInfo = labelerInfo.set_index('username')
+    registList = labelerInfo.loc[~labelerInfo['id'].map(bool)]
+    for labeler in registList.itertuples():
         data = {
-                "username": labeler.username,
-                "email": labeler.email,
+                "username": labeler.Index,
+                # "email": labeler.email,
                 "password1": labeler.password,
                 "password2": labeler.password,
                 "first_name": labeler.first_name,
                 "last_name": labeler.last_name,
                 }
-        r = requests.post(base_url + "auth/register", data=data)
+        requests.post(base_url + "auth/register", data=data)
+    r = requests.get(base_url+"users", headers=header_gs)
+    userCount = r.json()['count']
+    r = requests.get(base_url+"users", headers=header_gs, params={'page_size': userCount})
+    for user in r.json()['results']:
+        username = user['username']
+        if username in labelerInfo.index.values:
+            labelerInfo.loc[username,'id'] = user['id']
+    labelerInfo.reset_index(inplace=True)
+    labelerInfo = labelerInfo.reindex(columns= cols)
+    sheet.clear()
+    sheet.update([labelerInfo.columns.values.tolist()]+labelerInfo.values.tolist())
 
-def assignLabeler(newAssignmentSize=1000):
-    labelerListDf = pd.read_csv("labeler_list.csv")
-    labelerList = labelerListDf['id']
-    eachLabelerCR = getClassCR(labelerList, newAssignmentSize)
-    assign(eachLabelerCR, labelerListDf)
-    logWorkload(eachLabelerCR)
 
 
-def assignment2Df(dict_:dict, classCRProj, newAssignmentSize=1000):
+# def assignLabeler(newAssignmentSize=1000):
+#     taskInfo = getTasksInfo()
+#     eachLabelerCR = getClassCR(newAssignmentSize)
+#     assign(eachLabelerCR)
+#     updateJobAssign()
+#     logWorkload(eachLabelerCR)
+
+def assignment2Df(assignCR:dict, classCRProj, onceAssignWorkingHour, hourlyWorkingCount):
     seriesList = []
-    for key, val in dict_.items():
+    for key, val in assignCR.items():
         seriesList.append(pd.Series(val,name=key))
 
     classAsnDf = pd.DataFrame(seriesList).T.fillna(0)
     classAsnDf = classAsnDf.reindex(classCRProj.index, fill_value=0)
     classAsnDf['Rate'] = classAsnDf['Count']/classAsnDf['Count'].sum()
-    newAssignmentTotal = newAssignmentSize-classAsnDf['annotation'].sum()
-    classAsnDf['newAssignmentTarget'] = (classAsnDf['Count'].sum()+newAssignmentTotal)*classCRProj['Rate']-classAsnDf['Count']
-    classAsnDf['newAssignmentActual'] = 0
+    newAssignmentTotal = onceAssignWorkingHour-(classAsnDf['annotation']/hourlyWorkingCount).sum()
+    classAsnDf['newAssignmentTarget'] = ((classAsnDf['Count']/hourlyWorkingCount).sum()+newAssignmentTotal)*classCRProj['Rate']-(classAsnDf['Count']/hourlyWorkingCount)
     return {"newAssignmentSize":newAssignmentTotal, 'data':classAsnDf}
 
-def getClassCR(labelerList, newAssignmentSize=1000):
+def getAssignCR():
+    global assignCR
+    getTasksInfo()
 
     #project 전체의 이미지 수, 각 class의 비율
     classCountProjBbox = DefaultDict(int)
@@ -250,7 +308,7 @@ def getClassCR(labelerList, newAssignmentSize=1000):
         _, labelType, labelClass = taskInfo['taskName'][taskId].split('_')
         if labelType=='Bbox':
             classCountProjBbox[f'{labelClass}'] += count
-        elif labelType=='Bbox':
+        elif labelType=='Seg':
             classCountProjSeg[f'{labelClass}'] += count
         else:
             raise TypeError
@@ -274,37 +332,49 @@ def getClassCR(labelerList, newAssignmentSize=1000):
                                            'validation':DefaultDict(int), 
                                            'modification':DefaultDict(int), 
                                            'completed':DefaultDict(int)}}
-    eachLabelerCR = DefaultDict(classCountAsnlist)
+    assignCR = DefaultDict(classCountAsnlist)
     for jobId, count in taskInfo['jobSize'].items():
-        assigneeName = taskInfo['jobAssignee'][jobId]
+        jobAssignee = taskInfo['jobAssignee'][jobId]
         _, labelType, labelClass = taskInfo['taskName'][taskInfo['jobTaskId'][jobId]].split('_')
-        if assigneeName != None:
+        if jobAssignee != None:
             if labelType=='Bbox':
-                eachLabelerCR[assigneeName]['Bbox']['Count'][labelClass] += count
+                assignCR[jobAssignee]['Bbox']['Count'][labelClass] += count
                 status =  taskInfo['jobStatus'][jobId]
-                eachLabelerCR[assigneeName]['Bbox'][status][labelClass] += count
+                assignCR[jobAssignee]['Bbox'][status][labelClass] += count
             elif labelType=='Seg':
-                eachLabelerCR[assigneeName]['Seg'][labelClass] += count
+                assignCR[jobAssignee]['Seg']['Count'][labelClass] += count
                 status =  taskInfo['jobStatus'][jobId]
-                eachLabelerCR[assigneeName]['Seg'][status][labelClass] += count
+                assignCR[jobAssignee]['Seg'][status][labelClass] += count
             else:
                 raise TypeError
-    newEachLabelerCR = DefaultDict(dict)
-    for assignee in labelerList:
-        newEachLabelerCR[assignee]['Bbox'] = assignment2Df(eachLabelerCR[assignee]['Bbox'],classCRProjBbox, newAssignmentSize)
-        newEachLabelerCR[assignee]['Seg'] = assignment2Df(eachLabelerCR[assignee]['Seg'], classCRProjSeg, newAssignmentSize)
+    newAssignCR = DefaultDict(dict)
+    segActivate = labelerInfo.loc[labelerInfo['Seg 희망'].map(bool)].index
+    boxActivate = labelerInfo.loc[labelerInfo['Bbox 희망'].map(bool)].index
+    for assignee in labelerInfo.index:
+        newAssignCR[assignee]['Bbox'] = assignment2Df(assignCR[assignee]['Bbox'],classCRProjBbox, cfg.onceAssignWorkingHour,cfg.hourlyBboxWorkingCount)
+        newAssignCR[assignee]['Seg'] = assignment2Df(assignCR[assignee]['Seg'], classCRProjSeg, cfg.onceAssignWorkingHour, cfg.hourlySegWorkingCount)
 
-    return newEachLabelerCR
+        if assignee not in boxActivate:
+            newAssignCR[assignee]['Bbox']['newAssignmentSize'] = 0
+        if assignee not in segActivate:
+            newAssignCR[assignee]['Seg']['newAssignmentSize'] = 0
 
-def assign(eachLabelerCR, labelerListDF):
-    labelerList = labelerListDF.loc[labelerListDF['activate'].notna(),'id']
-    labelers = cycle(list(eachLabelerCR.items()))
+    assignCR = newAssignCR
+
+def getDailyWorkingHour():
+    global dailyWorkingHour
+    dailyWorkingHour = dict([(assignee, cfg.dailyWorkingHour) for assignee in labelerInfo['username'].keys()])
+
+def getNewAssignDict(labelType):
+    getTasksInfo()
+    newAssignDict = dict()
+    labelers = cycle(list(assignCR.items()))
     for jobId, assignee in taskInfo['jobAssignee'].items():
-        if (assignee == None):
+        if (assignee == None)&(taskInfo['jobLabelType'][jobId] == labelType):
             loopStart = True
             while True:
                 labeler, data = next(labelers)
-                if not labelerList.isin(labeler):
+                if labeler not in labelerInfo.loc[labelerInfo['activate'].map(bool) & labelerInfo[f'{labelType} 희망'].map(bool)].index:
                     continue
                 if loopStart:
                     labeler0 = labeler
@@ -314,87 +384,143 @@ def assign(eachLabelerCR, labelerListDF):
                     break
                 if (data[taskInfo['jobLabelType'][jobId]]['newAssignmentSize']>0)&\
                     (data[taskInfo['jobLabelType'][jobId]]['data'].loc[taskInfo['jobLabelClass'][jobId],'newAssignmentTarget'] >= 0):
-                    # requests.patch(base_url + f"jobs/{jobId}", headers=header_gs, data={"assignee": int(labeler)})
-                    data[taskInfo['jobLabelType'][jobId]]['newAssignmentSize'] -= taskInfo['jobSize'][jobId]
-                    data[taskInfo['jobLabelType'][jobId]]['data'].loc[taskInfo['jobLabelClass'][jobId],'newAssignmentTarget'] -= taskInfo['jobSize'][jobId]
-                    data[taskInfo['jobLabelType'][jobId]]['data'].loc[taskInfo['jobLabelClass'][jobId],'newAssignmentActual'] += taskInfo['jobSize'][jobId]
+                    newAssignDict[jobId] = int(labeler)
+                    if labelType == 'Bbox':
+                        hourlyWorkingCount = cfg.hourlyBboxWorkingCount
+                    elif labelType == 'Seg':
+                        hourlyWorkingCount = cfg.hourlySegWorkingCount
+                    else:
+                        raise Error
+                    data[taskInfo['jobLabelType'][jobId]]['newAssignmentSize'] -= taskInfo['jobSize'][jobId]/hourlyWorkingCount
+                    data[taskInfo['jobLabelType'][jobId]]['data'].loc[taskInfo['jobLabelClass'][jobId],'newAssignmentTarget'] -= taskInfo['jobSize'][jobId]/hourlyWorkingCount
+                    dailyWorkingHour[labeler] -= taskInfo['jobSize'][jobId]/hourlyWorkingCount
                     taskInfo['jobAssignee'][jobId] = labeler
                     break
+    return newAssignDict
 
-def logWorkload(eachLabelerCR):
+
+getJobUrl = lambda taskId, jobId: f'{cfg.base_url}tasks/{taskId}/jobs/{jobId}' \
+                                  if cfg.base_url.endswith('/') \
+                                  else f'{cfg.base_url}/tasks/{taskId}/jobs/{jobId}'
+
+def assign(newAssignDict):
+    for jobId, assignee in newAssignDict.items():
+        requests.patch(base_url + f"jobs/{jobId}", headers=header_gs, data={"assignee": int(assignee)})
+    getTasksInfo()
+    print('{} assign'.format(dt.datetime.now(gettz('Asia/Seoul'))))
+
+def getAssignTable():
+    getTasksInfo()
+    keysCols = ['project','task_id','task_name','job_id']
+    assignTable = pd.DataFrame(taskInfo['keys'], columns=keysCols)
+    assignTableCols = ['jobSize', 'jobAssignee', 'jobStatus']
+    for col in assignTableCols:
+        assignTable[col] = assignTable['job_id'].map(taskInfo[col])
+    assignTable['jobUrl'] = assignTable[['task_id','job_id']].apply(lambda x: getJobUrl(x.task_id,x.job_id), axis=1)
+    assignTable['assigneeName'] = assignTable['jobAssignee'].map(labelerInfo['username'])
+    assignTable['assignTime'] = dt.datetime.now(gettz('Asia/Seoul')).strftime(timeFormat)
+    assignTable['inCharge'] = assignTable['jobAssignee'].map(labelerInfo['inCharge'])
+    return assignTable
+
+def updateJobAssign(assignTable):
+    cols = ['assignTime','project','task_id','task_name','job_id','jobUrl', 'jobSize', 'jobAssignee','assigneeName', 'inCharge', 'jobStatus']
+    assignTable = assignTable.reindex(columns=cols).set_index('job_id').dropna()
+
+    sheet = gc.open('job 할당표').worksheet('job 할당표')
+    preAssignTable = pd.DataFrame(sheet.get_all_records()).reindex(columns=cols)
+    if preAssignTable['inCharge'].isna().all():
+        preAssignTable['inCharge'] = preAssignTable['jobAssignee'].map(labelerInfo['inCharge'])
+    preAssignTable.set_index('job_id',inplace=True)
+
+    assignTable['assignTime'].update(preAssignTable['assignTime'])
+    assignTable = assignTable.reset_index().reindex(columns=cols)
+    sheet.clear()
+    sheet.update([assignTable.columns.values.tolist()]+assignTable.values.tolist())
+    print('{} update job assign'.format(dt.datetime.now(gettz('Asia/Seoul'))))
+
+def logWorkload():
+    getTasksInfo()
+    getAssignCR()
     exportSum = []
-    exportData = []
-    sumIndexNames = ['time','assignee', 'labelType']
-    classIndexNames = ['time','assignee', 'labelType', 'labelClass']
+    exportClass = []
+    labelerSumIndexNames = ['time','assigneeId','assigneeName','inCharge','labelType']
+    labelerClassIndexNames = ['time','assigneeId','assigneeName','inCharge', 'labelType', 'labelClass']
+    projectSumIndexNames = ['time', 'labelType']
+    projectClassIndexNames = ['time', 'labelType', 'labelClass']
     cols = ['Count', 'annotation', 'validation', 'modification', 'completed']
     totalCols = [f'total {col}' for col in cols]
     gradCols = [f'grad {col}' for col in cols]
-    execTime = dt.datetime.now(gettz('Asia/Seoul')).strftime('%y%m%d-%H%M')
-    for assignee, labelType in eachLabelerCR.items():
+    execTime = dt.datetime.now(gettz('Asia/Seoul')).strftime(timeFormat)
+    for assignee, labelType in assignCR.items():
         for type, data in labelType.items():
             classDf = data['data'].reindex(columns=cols)
             classDf.columns = totalCols
+            classDf = classDf.reindex(index=taskInfo['labels'].values(), fill_value=0)
             sumDf = classDf.sum(axis=0)
-            sumDf['assignee'] = classDf['assignee'] = assignee
+            sumDf['assigneeId'] = classDf['assigneeId'] = assignee
+            sumDf['assigneeName'] = classDf['assigneeName'] = labelerInfo['username'][assignee]
+            sumDf['inCharge'] = classDf['inCharge'] = labelerInfo['inCharge'][assignee]
             sumDf['labelType'] = classDf['labelType'] = type
             sumDf['time'] = classDf['time'] = execTime
 
             exportSum.append(sumDf)
-            exportData.append(classDf.reset_index().rename(columns={'index':'labelClass'}))
-    totalWorkloadClass = pd.concat(exportData).set_index(classIndexNames).reindex(columns=totalCols+gradCols)
-    totalWorkloadSum = pd.DataFrame(exportSum).set_index(sumIndexNames).reindex(columns=totalCols+gradCols)
+            exportClass.append(classDf.reset_index().rename(columns={'index':'labelClass'}))
+    labelerTotalWorkloadClass = pd.concat(exportClass).set_index(labelerClassIndexNames).reindex(columns=totalCols)
+    labelerTotalWorkloadSum = pd.DataFrame(exportSum).set_index(labelerSumIndexNames).reindex(columns=totalCols)
+
+    projectTotalWorkloadClass = labelerTotalWorkloadClass.groupby(projectClassIndexNames).sum()
+    projectTotalWorkloadSum = labelerTotalWorkloadSum.groupby(projectSumIndexNames).sum()
 
 
-    # 기존 log 파일 여부 확인
-    filename = 'workloadSum.csv'
-    if os.path.isfile(filename):
-        preWorkloadSum = pd.read_csv(filename)
-        preWorkloadSum['time'] = preWorkloadSum['time'].map(dt.datetime.strftime('%y%m%d-%H%M'))
-        preWorkloadSum = preWorkloadSum.set_index(sumIndexNames)
-    else:
-        preWorkloadSum = pd.DataFrame(columns=sumIndexNames+totalCols+gradCols).set_index(sumIndexNames)
-        preWorkloadSum = preWorkloadSum.reindex(index=totalWorkloadSum.index, fill_value=0)
-        
+    def getNewWorkload(totalWorkload, IndexNames, sheetName):
+        sheet = gc.open('log').worksheet(sheetName)
+        preWorkload = pd.DataFrame(sheet.get_all_records())
+        if not preWorkload.empty:
+            preWorkload = preWorkload.reindex(columns=IndexNames+totalCols+gradCols)
+            if 'inCharge' in preWorkload.columns.values:
+                if preWorkload['inCharge'].isna().any():
+                    preWorkload.loc[preWorkload['inCharge'].isna(),'inCharge'] = preWorkload.loc[preWorkload['inCharge'].isna(),'assigneeId'].map(labelerInfo['inCharge'])
+                    sheet.clear()
+                    sheet.update([preWorkload.columns.values.tolist()] + preWorkload.values.tolist())
+            preWorkload = preWorkload.set_index(IndexNames)
+        else:
+            preWorkload = pd.DataFrame(preWorkload, columns=IndexNames+totalCols+gradCols).set_index(IndexNames)
+            preWorkload = preWorkload.reindex(index=totalWorkload.index, fill_value=0)
+            
+        #최근 작업량 구하기
+        recentTime = preWorkload.index.get_level_values('time').map(lambda x: dt.datetime.strptime(x,timeFormat)).max().strftime(timeFormat)
+        recentWorkload = preWorkload.loc[preWorkload.index.get_level_values('time')==recentTime,totalCols].copy(deep=True)
+        recentWorkload.index = pd.MultiIndex.from_tuples([(execTime, *r[1:]) for r in list(recentWorkload.index)])
+        recentWorkload = recentWorkload.reindex(index=totalWorkload.index, fill_value=0)
 
-    recentTime = preWorkloadSum.index.get_level_values('time').max()
-    recentWorkloadSum = preWorkloadSum.loc[preWorkloadSum.index.get_level_values('time')==recentTime,totalCols].copy(deep=True)
-    recentWorkloadSum.index = totalWorkloadSum.index
-    newWorkloadSum = totalWorkloadSum.reindex(columns=totalCols, fill_value=0)
+        # 새 작업량 구하기
+        newWorkload = totalWorkload.reindex(columns=totalCols, fill_value=0)
+        gradWorkload = newWorkload - recentWorkload
+        gradWorkload.columns = gradCols
+        newWorkload = pd.concat([totalWorkload, gradWorkload], axis=1)
 
+        #sheet 업데이트
+        if recentTime == execTime:
+            sheet.update([newWorkload.reset_index().columns.values.tolist()] + newWorkload.reset_index().values.tolist())
+        else:
+            sheet.insert_rows(newWorkload.reset_index().values.tolist(),row=2)
 
-    gradWorkloadSum = newWorkloadSum - recentWorkloadSum
-    gradWorkloadSum.columns = gradCols
-    newWorkloadSum = pd.concat([totalWorkloadSum, gradWorkloadSum], axis=1)
+    getNewWorkload(labelerTotalWorkloadSum,labelerSumIndexNames, '작업량(작업자-클래스합)')
+    getNewWorkload(labelerTotalWorkloadClass,labelerClassIndexNames, '작업량(작업자-클래스별)')
+    getNewWorkload(projectTotalWorkloadSum,projectSumIndexNames, '작업량(전체-클래스합)')
+    getNewWorkload(projectTotalWorkloadClass,projectClassIndexNames, '작업량(전체-클래스별)')
 
-    if recentTime
+    print('{} logging workload'.format(dt.datetime.now(gettz('Asia/Seoul'))))
 
+def runAssign():
+    getAssignCR()
+    assign(getNewAssignDict('Seg'))
+    assign(getNewAssignDict('Bbox'))
 
-    filename = 'workloadClass.csv'
-    if os.path.isfile(filename):
-        totalWorkloadClass = pd.read_csv(filename)
-        totalWorkloadClass['time'] = totalWorkloadClass['time'].map(dt.datetime.strftime('%y%m%d-%H%M'))
-        totalWorkloadClass = totalWorkloadClass.set_index(classIndexNames)
-    else:
-        totalClassDf.to_csv(filename)
-
-
-            # preSumDf = workloadSum.reindex(index=[preTime, assignee, type])
-            # preClassDf = workloadClass.reindex(index=[preTime, assignee, type])
-            # gradDf = sumDf[totalCols] - preSumDf[totalCols]
-            # sumDf['grad Count'] = classDf['grad Count'] = type
-            # sumDf['grad annotation'] = classDf['grad annotation'] = type
-            # sumDf['grad validation'] = classDf['grad validation'] = type
-            # sumDf['grad modification'] = classDf['grad modification'] = type
-            # sumDf['grad completed'] = classDf['grad completed'] = type
-
-
-    print()
-
-
-
-async def main():
+async def mainSelect():
     choice = None
     while choice != "0":
+        getTasksInfo()
         print \
         ("""
         ---MENU---
@@ -402,7 +528,10 @@ async def main():
         0 - Exit
         1 - Run
         2 - User Register
-        3 - Assign Labeler
+        3 - Get new assign dict
+        4 - Update job assign table
+        5 - Update log
+        6 - Assign
         """)
 
         choice = input("Your choice: ") # What To Do ???
@@ -413,15 +542,48 @@ async def main():
         elif choice == "1":
             await mkMonitoringFile()
         elif choice == "2":
-            registUser(base_url)
+            registUser()
         elif choice == "3":
-            assignLabeler( newAssignmentSize=1000)
+            getDailyWorkingHour()
+            getAssignCR()
+            newAssignDict = getNewAssignDict('Bbox')
+        elif choice == "4":
+            updateJobAssign(getAssignTable())
+        elif choice == "5":
+            logWorkload()
+        elif choice == "6":
+            assign(newAssignDict)
         else:
             print(" ### Wrong option ### ")
 
-### Main program    
+async def mainSchedule():
+    sched = BackgroundScheduler()
+    sched.start()
+    # for weekday in range(5):
+    #     sched.add_job(logWorkload, 'cron', day_of_week=weekday, hour=15, minute=30, timezone=timezone('Asia/Seoul'), id=f"logging_{weekday}")
+    sched.add_job(logWorkload, 'cron', hour=15, minute=30, timezone=timezone('Asia/Seoul'), id=f"logging")
+    sched.add_job(runAssign,'interval', hours=1, timezone=timezone('Asia/Seoul'), id=f"assign", next_run_time=startTime)
+    sched.add_job(getTasksInfo,'interval', minutes=30, timezone=timezone('Asia/Seoul'), id=f"get task info")
+    sched.add_job(getLabelerInfo,'interval', minutes=30, timezone=timezone('Asia/Seoul'), id=f"get labeler info")
+    sched.add_job(getDailyWorkingHour, 'cron', hour=16, timezone=timezone('Asia/Seoul'), id=f"init daily working hour")
+    sched.add_job(updateJobAssign, 'interval', args=[getAssignTable()], minutes=5, id="update Job Assign", timezone=timezone('Asia/Seoul'))
+    while True:
+        schedule.run_pending()
+
 if __name__ == "__main__":
     debug=True
-    base_url, header_gs = login()
-    taskInfo = getTasksInfo()
-    aio.run(main())
+    timeFormat = '%y%m%d-%H%M'
+    path = 'config.json'
+    cfg = EasyDict(readJson())
+    header_gs = {'Accept': 'application/json', 'Authorization': f'Token {cfg.token}'}
+    base_url = getBaseUrl()
+    startTime = dt.datetime.now(timezone('Asia/Seoul')).replace(microsecond=0,minute=0,second=0) + dt.timedelta(hours=1)
+    tokenCheck()
+    getTasksInfo()
+    gc = gs.service_account(filename='nia-dataset-83bf2b5f03fd.json')
+    getLabelerInfo()
+    getDailyWorkingHour()
+    if debug:
+        aio.run(mainSelect())
+    else:
+        aio.run(mainSchedule())
