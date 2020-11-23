@@ -1,3 +1,4 @@
+from pandas.core import base
 import schedule
 from typing import DefaultDict
 from dateutil.tz.tz import gettz
@@ -292,9 +293,9 @@ def assignment2Df(assignCR:dict, classCRProj, onceAssignWorkingHour, hourlyWorki
 
     classAsnDf = pd.DataFrame(seriesList).T.fillna(0)
     classAsnDf = classAsnDf.reindex(classCRProj.index, fill_value=0)
-    classAsnDf['Rate'] = classAsnDf['Count']/classAsnDf['Count'].sum()
+    classAsnDf['Rate'] = classAsnDf['assignment']/classAsnDf['assignment'].sum()
     newAssignmentTotal = onceAssignWorkingHour-(classAsnDf['annotation']/hourlyWorkingCount).sum()
-    classAsnDf['newAssignmentTarget'] = ((classAsnDf['Count']/hourlyWorkingCount).sum()+newAssignmentTotal)*classCRProj['Rate']-(classAsnDf['Count']/hourlyWorkingCount)
+    classAsnDf['newAssignmentTarget'] = ((classAsnDf['assignment']/hourlyWorkingCount).sum()+newAssignmentTotal)*classCRProj['Rate']-(classAsnDf['assignment']/hourlyWorkingCount)
     return {"newAssignmentSize":newAssignmentTotal, 'data':classAsnDf}
 
 def getAssignCR():
@@ -314,20 +315,20 @@ def getAssignCR():
             raise TypeError
     classCountProjBbox = pd.Series(classCountProjBbox)
     classRateProjBbox = classCountProjBbox/classCountProjBbox.sum()
-    classCRProjBbox = pd.DataFrame([classCountProjBbox,classRateProjBbox], index=['Count', 'Rate']).T
+    classCRProjBbox = pd.DataFrame([classCountProjBbox,classRateProjBbox], index=['assignment', 'Rate']).T
     
     classCountProjSeg = pd.Series(classCountProjSeg)
     classRateProjSeg = classCountProjSeg/classCountProjSeg.sum()
-    classCRProjSeg = pd.DataFrame([classCountProjSeg,classRateProjSeg], index=['Count', 'Rate']).T
+    classCRProjSeg = pd.DataFrame([classCountProjSeg,classRateProjSeg], index=['assignment', 'Rate']).T
     
 
     #assignee가 할당된 job의 이미지 수, 각 class의 비율
-    classCountAsnlist = lambda : {'Bbox': {'Count':DefaultDict(int),
+    classCountAsnlist = lambda : {'Bbox': {'assignment':DefaultDict(int),
                                            'annotation':DefaultDict(int), 
                                            'validation':DefaultDict(int), 
                                            'modification':DefaultDict(int), 
                                            'completed':DefaultDict(int)},
-                                  'Seg' : {'Count':DefaultDict(int),
+                                  'Seg' : {'assignment':DefaultDict(int),
                                            'annotation':DefaultDict(int), 
                                            'validation':DefaultDict(int), 
                                            'modification':DefaultDict(int), 
@@ -338,11 +339,11 @@ def getAssignCR():
         _, labelType, labelClass = taskInfo['taskName'][taskInfo['jobTaskId'][jobId]].split('_')
         if jobAssignee != None:
             if labelType=='Bbox':
-                assignCR[jobAssignee]['Bbox']['Count'][labelClass] += count
+                assignCR[jobAssignee]['Bbox']['assignment'][labelClass] += count
                 status =  taskInfo['jobStatus'][jobId]
                 assignCR[jobAssignee]['Bbox'][status][labelClass] += count
             elif labelType=='Seg':
-                assignCR[jobAssignee]['Seg']['Count'][labelClass] += count
+                assignCR[jobAssignee]['Seg']['assignment'][labelClass] += count
                 status =  taskInfo['jobStatus'][jobId]
                 assignCR[jobAssignee]['Seg'][status][labelClass] += count
             else:
@@ -447,7 +448,7 @@ def logWorkload():
     labelerClassIndexNames = ['time','assigneeId','assigneeName','inCharge', 'labelType', 'labelClass']
     projectSumIndexNames = ['time', 'labelType']
     projectClassIndexNames = ['time', 'labelType', 'labelClass']
-    cols = ['Count', 'annotation', 'validation', 'modification', 'completed']
+    cols = ['assignment', 'annotation', 'validation', 'modification', 'completed']
     totalCols = [f'total {col}' for col in cols]
     gradCols = [f'grad {col}' for col in cols]
     execTime = dt.datetime.now(gettz('Asia/Seoul')).strftime(timeFormat)
@@ -455,7 +456,7 @@ def logWorkload():
         for type, data in labelType.items():
             classDf = data['data'].reindex(columns=cols)
             classDf.columns = totalCols
-            classDf = classDf.reindex(index=taskInfo['labels'].values(), fill_value=0)
+            classDf = classDf.reindex(index=list(set(taskInfo['labels'].values())), fill_value=0)
             sumDf = classDf.sum(axis=0)
             sumDf['assigneeId'] = classDf['assigneeId'] = assignee
             sumDf['assigneeName'] = classDf['assigneeName'] = labelerInfo['username'][assignee]
@@ -468,6 +469,7 @@ def logWorkload():
     labelerTotalWorkloadClass = pd.concat(exportClass).set_index(labelerClassIndexNames).reindex(columns=totalCols)
     labelerTotalWorkloadSum = pd.DataFrame(exportSum).set_index(labelerSumIndexNames).reindex(columns=totalCols)
 
+    # totalCount = taskInfo['name'].str.split('_')
     projectTotalWorkloadClass = labelerTotalWorkloadClass.groupby(projectClassIndexNames).sum()
     projectTotalWorkloadSum = labelerTotalWorkloadSum.groupby(projectSumIndexNames).sum()
 
@@ -559,19 +561,98 @@ async def mainSelect():
 async def mainSchedule():
     sched = BackgroundScheduler()
     sched.start()
-    # for weekday in range(5):
-    #     sched.add_job(logWorkload, 'cron', day_of_week=weekday, hour=15, minute=30, timezone=timezone('Asia/Seoul'), id=f"logging_{weekday}")
     sched.add_job(logWorkload, 'cron', hour=15, minute=30, timezone=timezone('Asia/Seoul'), id=f"logging")
     sched.add_job(runAssign,'interval', hours=1, timezone=timezone('Asia/Seoul'), id=f"assign", next_run_time=startTime)
     sched.add_job(getTasksInfo,'interval', minutes=30, timezone=timezone('Asia/Seoul'), id=f"get task info")
     sched.add_job(getLabelerInfo,'interval', minutes=30, timezone=timezone('Asia/Seoul'), id=f"get labeler info")
     sched.add_job(getDailyWorkingHour, 'cron', hour=16, timezone=timezone('Asia/Seoul'), id=f"init daily working hour")
-    sched.add_job(updateJobAssign, 'interval', args=[getAssignTable()], minutes=5, id="update Job Assign", timezone=timezone('Asia/Seoul'))
+    # updateJobTable = lambda : updateJobAssign(getAssignTable())
+    sched.add_job(lambda : updateJobAssign(getAssignTable()), 'interval', minutes=5, id="update Job Assign", timezone=timezone('Asia/Seoul'))
     while True:
         schedule.run_pending()
 
+class Project():
+    def __init__(self) -> None:
+        self.seledProjectId = cfg.projectId
+        self.getTasksInfo()
+
+    def mkProject(self,projName):
+        requests.post(base_url+'projects', headers=header_gs, data={'name':projName})
+    
+    def getProjList(self):
+        r = requests.get(base_url+'projects', headers=header_gs)
+        r = requests.get(base_url+'projects', headers=header_gs, params={'page_size': r.json()['count']})
+        print('no\tid\tname')
+        print('----------------------------')
+        print(f'0\t-\tall')
+        projrepo = []
+        for idx, proj in enumerate(r.json()['results']):
+            num = idx +1
+            print( f'{num}\t{proj["id"]}\t{proj["name"]}')
+            projrepo.append(pd.Series(proj, name=num))
+        self.projDf = pd.DataFrame(projrepo)
+
+    def selProj(self):
+        self.getProjList()
+        print()
+        selNum = int(input('no. 선택: '))
+        try:
+            if selNum == 0:
+                self.seledProjectId = 'all'
+            else:
+                self.seledProj = self.projDf.loc[int(selNum)]
+                self.seledProjectId = self.seledProj['id']
+        except KeyError as e:
+            print('잘못된 숫자를 선택했습니다.')
+            self.selProj()
+
+    def getTasksInfo(self):
+        if self.seledProjectId == 'all':
+            r = requests.get(base_url+f'tasks', headers=header_gs)
+            r = requests.get(base_url+f'tasks', headers=header_gs, params={'page_size':r.json()['count']})
+        else:
+            r = requests.get(base_url+f'projects/{cfg.projectId}/tasks', headers=header_gs)
+            r = requests.get(base_url+f'projects/{cfg.projectId}/tasks', headers=header_gs, params={'page_size':r.json()['count']})
+        taskrepo = []
+        for task in r.json()['results']:
+            taskrepo.append(pd.Series(task))
+        self.taskInfo = pd.DataFrame(taskrepo)
+
+    def exportProjTaskTable(self):
+        self.getProjList()
+        table = self.taskInfo[['id', 'name', 'project']]\
+                .rename(columns=dict(zip(['id', 'name', 'project'],['taskId', 'taskName', 'projId'])))
+        table['projName'] = table['projId'].map(self.projDf[['id','name']].set_index('id').to_dict()['name'])
+        table.to_csv(cfg.projectFile,encoding='euc-kr')
+
+    def readProjTaskTable(self):
+        '''
+        tabel cols = [taskId, taskName, projId, projName]
+        '''
+        self.projTaskTable = pd.read_csv(cfg.projectFile)
+
+    def assignProjFromTable(self):
+        self.readProjTaskTable()
+        for task in self.projTaskTable.itertuples():
+            requests.patch(base_url+f'tasks/{task.taskId}', headers=header_gs, data={"project":task.projId})
+
+    def assignProjAllUnassignedTask(self):
+        self.selProj()
+        unassignedTaskInfo = self.taskInfo.loc[self.taskInfo['project'].isna()]
+        if self.seledProjectId == 'all':
+            print('다른 Project를 선택해 주세요')
+            self.selProj()
+        for info in unassignedTaskInfo.itertuples():
+            requests.patch(base_url+f'tasks/{info.taskId}', headers=header_gs, data={"project":self.seledProj})
+
+
+
+
+    # def setProj(self):
+
+
 if __name__ == "__main__":
-    debug=True
+    debug=False
     timeFormat = '%y%m%d-%H%M'
     path = 'config.json'
     cfg = EasyDict(readJson())
@@ -583,6 +664,8 @@ if __name__ == "__main__":
     gc = gs.service_account(filename='nia-dataset-83bf2b5f03fd.json')
     getLabelerInfo()
     getDailyWorkingHour()
+    # tt = Project()
+    # tt.assignProjAllUnassignedTask()
     if debug:
         aio.run(mainSelect())
     else:

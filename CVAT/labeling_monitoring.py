@@ -8,13 +8,26 @@ from tqdm.asyncio import tqdm
 from copy import deepcopy
 import datetime as dt
 import math
+from easydict import EasyDict
+import json
+
+def readJson():
+    with open('config.json','r') as f:
+        cfg = json.load(f)
+    return cfg
+
+def getBaseUrl():
+    if cfg.base_url.endswith('/'):
+        base_url = '{}api/v1/'.format(cfg['base_url'])
+    else:
+        base_url = '{}/api/v1/'.format(cfg['base_url'])
+    return base_url
 
 #### FUNCTIONS ###
 def login():
     while True:
         print("Getting token...")
-        api_login,api_password, port = auth()
-        base_url = f"http://tmlabel.duckdns.org:{port}/api/v1/"
+        api_login,api_password = auth()
         data_get = {'username': api_login,
                     'password': api_password}
         try:
@@ -207,13 +220,11 @@ def auth():
     if not debug:
         api_login = input('id: ')
         api_password = getpass('pass: ')
-        port = input('port: ')
     else:
         api_login = 'serveradmin'
         print(api_login)
         api_password = 'wnrWkd131@Cv'
-        port = 12280
-    return api_login, api_password, port
+    return api_login, api_password
 
 def registUser(base_url):
     labelerList = pd.read_csv("labeler_list.csv")
@@ -235,13 +246,6 @@ def assignLabeler(base_url, header_gs):
             r = requests.patch(base_url + f"jobs/{assign.job_id}", headers=header_gs, data={"assignee": int(assign.assignee)})
             # r = requests.patch(base_url + f"jobs/{assign.job_id}", data={"assignee":assign.assignee})
 
-def getLabelerStatus(base_url, header_gs):
-
-
-
-def assignPolicy():
-
-
 async def main():
     base_url, header_gs = login()
     choice = None
@@ -252,8 +256,6 @@ async def main():
         
         0 - Exit
         1 - Run
-        2 - User Register
-        3 - Assign Labeler
         """)
 
         choice = input("Your choice: ") # What To Do ???
@@ -263,14 +265,12 @@ async def main():
             print("Good bye!")  
         elif choice == "1":
             await mkMonitoringFile(base_url, header_gs)
-        elif choice == "2":
-            registUser(base_url)
-        elif choice == "3":
-            assignLabeler(base_url, header_gs)
         else:
             print(" ### Wrong option ### ")
 
 ### Main program    
 if __name__ == "__main__":
-    debug=True
+    debug=False
+    cfg = EasyDict(readJson())
+    base_url = getBaseUrl()
     aio.run(main())
