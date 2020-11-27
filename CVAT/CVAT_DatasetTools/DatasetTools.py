@@ -1,14 +1,14 @@
 from pathlib import Path
-file__ = Path(__file__)
+file__ = Path(__file__).parent
 import sys
-sys.path.insert(0,'E:\\merge\\datumaro_')
+sys.path.insert(0,str(file__/'datumaro'))
 
 # from datumaro.components.project import Project
 from datumaro.cli.__main__ import main
 import os
 from easydict import EasyDict
-from typing import Callable
-import inspect
+from typing import Callable, OrderedDict
+from shutil import rmtree
 
 osName = os.name
 
@@ -30,9 +30,12 @@ class Menu:
         header = 'No\tOption\t\tHelp\n------------------------------------'
         opts = [self.menuName, header]
         for no,val in self.command.items():
-            line = f'{val.no}\t\t{val.opt}\t{val.help}'
+            line = f'{no}\t\t{val.opt}\t{val.help}'
             opts.append(line)
         return '\n'.join(opts)
+    
+    def __call__(self):
+        self.selectAndRun()
 
     def selectAndRun(self):
         self.prevMunu = Menu.prevMunu
@@ -42,47 +45,68 @@ class Menu:
         selNum = int(input('선택 No: ').strip())
         self.command[selNum].function(*self.command.argValues)
 
-    def setCommand(self, opt:str, function:Callable, argNames:dict[str,str]=dict(), help='') :
+    def setCommand(self, opt:str, function:Callable, help='') :
         self.command[len(self.command)] = {"opt": opt,
-                                        "function": function, 
-                                        "argNames": argNames, 
-                                        "argValues": [], 
-                                        "help": help}
-        return self
-
-    def setArg(self,no:str):
-        args = []
-        for name,type in self.command[no].argNames.items():
-            val = input(f'{name}:{type} 입력: ')
-            arg = eval(f'{type}({val.strip()})')
-            args.append(arg)
-
-        self.command[no].argValues = args
+                                           "function": function, 
+                                           "help": help}
         return self
 
     def goToPrev(self):
         self.prevMunu.selectAndRun()
 
 class CLI:
-    def __init__(self, datasetsPath) -> None:
-        self.datasetsPath = Path(datasetsPath).absolute()
-        self.datasetPathList = []
-        self.projectsPath = (Path('projects')/self.datasetPath.name).absolute()
-        self.exportPath = (Path('export')/self.datasetPath.name).absolute()
+    def __init__(self) -> None:
+        self.datasetsPath = Path('datasets').absolute().mkdir(exist_ok=True)
+        self.projectsPath = (Path('tmp/projects')).absolute().mkdir(exist_ok=True)
 
-    def importDataset(self, format):
-        datasetPath = str(self.datasetPath)
-        projPath = str(self.projectsPath)
-        projImportArgs = ['project', 'import', '-i', datasetPath, '-o', projPath, '-f', format, '--overwrite']
-        main(projImportArgs)
+    def importDataset(self):
+        args = self.setArg({'format':('str', '다운로드 한 데이터셋의 형식.\n지원형식: coco, cvat, datumaro, image_dir, imagenet, imagenet_txt, label_me, mot_seq, mots,tf_detection_api, voc, yolo')})
+        datasetPathList = self.getSubDirList(self.datasetsPath)
+        for datasetPath in datasetPathList:
+            projPath = str(self.projectsPath/datasetPath.name)
+            projImportArgs = ['project', 'import', '-i', datasetPath, '-o', projPath, '-f', args.format, '--overwrite']
+            main(projImportArgs)
         return self
 
-    def exportDataset(self, format):
-        export_args = ['project','export','-f',format,'-o','export_test_voc','-p','merge_test/']
-        main(export_args)
+    def mergeDataset(self):
+        projsPathList = self.getSubDirList(self.projectsPath)
+        mergePath = (self.projectsPath/'mergedProject').mkdir(exist_ok=True)
+        merge_args = ['merge', '-o', mergePath, '--overwrite', *projsPathList]
+        main(merge_args)
+        return self
 
-mainMenu = Menu('Main').setCommand('dataset 합치기',)
+    def exportDataset(self):
+        args = self.setArg({'format':('str', '내보낼 데이터셋의 형식.\n지원형식:coco, cvat, datumaro, datumaro_project, label_me, mot_seq_gt, mots_png, tf_detection_api, voc,voc_segmentation, yolo')})
+        projectsPathList = self.getSubDirList(self.projectsPath)
+        for proj in projectsPathList:
+            exportPath = (Path('exportDataset')/args.format/proj.name).absolute().mkdir(exist_ok=True)
+            export_args = ['project','export','-f',args.format,'-o',str(exportPath),'-p',str(proj)]
+            main(export_args)
+        rmtree(self.projectsPath, ignore_errors=True)
+        return self
 
+    def setArg(self, argsAndType:dict[str,str]=dict())->EasyDict:
+        args = EasyDict()
+        for name,type in argsAndType.items():
+            inputPrint = f'{help}\n\n{name}:{type} 입력: '
+            val = input(inputPrint)
+            arg = eval(f'{type}({val.strip()})')
+            args[name] = arg
+        return args
+
+    def getSubDirList(self,Path:Path):
+        return [dir for dir in Path.iterdir() if dir.is_dir()]
+
+    def mergeFunction(self):
+        self.importDataset()
+        self.mergeDataset()
+        self.exportDataset()
+        return self
+
+    def convertFunction(self):
+        self.importDataset()
+        self.exportDataset()
+        return self
 
     #     self.projs = []
     #     for dir in self.datasetPath.iterdir():
