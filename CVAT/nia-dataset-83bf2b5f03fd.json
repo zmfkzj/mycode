@@ -1,0 +1,12 @@
+{
+  "type": "service_account",
+  "project_id": "nia-dataset",
+  "private_key_id": "83bf2b5f03fd5e7600149361e650ae895bcb5ec9",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQDB854pKy6YkDZD\nyxenhZlb7i2xBxk4lfJyWig7fHlLDwFZEomXbTEaergEB6pT4h6myXRLTZ7rGkxy\nVL8aCqFU0WE1TOjbVEbdtP/L/bT/UZQ6eCkO/rYntanV9LbW5nv2Uyqz4oxIi4fq\nWcWJBRG/ll6u8tv3IenulAT8zhOhc8vECfq4BmIKwMQSluXdxaq8l7LZM5MUJF1h\ngoDj6pOOAhlj4bQWfLe5PyBNy8xK5AlbY8AWyVAy2LIbDS1ZMzq6WvTgAkcj16Ps\noplYyelBM849i26pFrkn2VXBOQZRm0y/VWsv9WpmM+g+b4ciC+gVGDZn7CV+iLxc\nqhYOLb4PAgMBAAECggEACRP5jay/QBXT7GVnpIgszvA9hEE0TYE7OV397xba6If5\nxK0I8qUCPN6MmWewcb+uNplMT7AA5bkz5dAQp8vilEE+nwuMBKQTsxHjPS2RWLf9\nS6VPKqwCY6Ztnh2Xp0Rfff6Ti5rpfQXG5VGxXMH3fDOyF9c3M4CLXgbgmuKcaZyY\nXAFKsH/YyOALVlYY0yTbj/pzWyE03V8jevBa/7Htxnb+wKRY6TZA3VtoTVg+nP+A\nin8+KSj8fmtIYoxzR5XRUZEigx0IJ7HN+LqgyGKqE0cCQON4EG7TnBW5ekYbciQl\n9Hb1B07e1hJsN61qTcOEGvCMn7fIdeMJWYNBunk5oQKBgQD+mPhZKMZ2K/G6Nvpj\n9BjLYDN7sLuApjuxT6+/SNc/ZcEeBFvJWi0XcqsASCWY2/m1PKnVwytvHCWVRF41\nzmHZ/Yk0Z2SePw9P5xqhEtRwZbc+bfzNhCjqlX9sUZQ02E44mYoz3/zu8ElREojp\nZse04ynjVA/R2zwZ4ZxcoDtDoQKBgQDDBSAtiDHV3Hx7s4Q1XSmfEnLgMM8zOInr\nsrKW3051ob4a/cnNutY7yTSjfDxXTIWi3EWbWBG+lnJzcBasw1nV9egnLyvYfHdn\ndsWke5VgU4fIsb60LijugDali415XaCxc7T5yJKHe6c3u07lPO4AVSLlb7YW04l0\nPf85g7ujrwKBgEPw7G1WnUeRyIsp+r3LuQYk4PhEHHVjZxCVNFA2jwJjFBr/jML5\n5oiYWBvWJPpa0ZNU4fmigKfA+iKQQRfYwHIc3411fftg1qQ7BvcvADQSYMkvLsRl\nXUnkpUFxr7w+cPlXt/LJ9kSJKPeSm6i1fdu+t0Hr/+C/wZUiiMiLFeWhAoGAUBdz\nzp9HcEA784WXP19Cb6zg9se04KFQqzbZd3LAQzko3ObrkQ0xXJ5WeunT0jqAC5GR\nGKpDp1UcLeKTvWIBLAjwzd7mj+MWGqzBoLqMb2H+uuKcolzuvHx1dOlqMbTNAPO3\nGHpSC0gyNYY8cZLjX8mXKkkFrDw2EEJB5jn+vssCgYBoOoBRr+jO1WzOMd64mFnU\nokXKrzYCtt46ov026sifenXA4YrqQMeLcy3YcuohqcTkgNRyfcIP4UEyVlkU4NeV\nFVr+es5e6IVE1aa1WjbApmj6DVeGtv4qyMN1jfJt6kHkpZCxwt0nNZ6KiTKlMa55\n8hm4G/5vuN468a8ymE+jOA==\n-----END PRIVATE KEY-----\n",
+  "client_email": "tmlabel@nia-dataset.iam.gserviceaccount.com",
+  "client_id": "111655461330070695535",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/tmlabel%40nia-dataset.iam.gserviceaccount.com"
+}

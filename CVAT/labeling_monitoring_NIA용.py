@@ -1,3 +1,4 @@
+from collections import defaultdict
 from pandas.core import base
 import schedule
 from typing import DefaultDict
@@ -368,35 +369,31 @@ def getDailyWorkingHour():
 
 def getNewAssignDict(labelType):
     getTasksInfo()
+    global dailyWorkingHour
     newAssignDict = dict()
-    labelers = cycle(list(assignCR.items()))
-    for jobId, assignee in taskInfo['jobAssignee'].items():
-        if (assignee == None)&(taskInfo['jobLabelType'][jobId] == labelType):
-            loopStart = True
-            while True:
-                labeler, data = next(labelers)
-                if labeler not in labelerInfo.loc[labelerInfo['activate'].map(bool) & labelerInfo[f'{labelType} 희망'].map(bool)].index:
-                    continue
-                if loopStart:
-                    labeler0 = labeler
-                    loopStart = False
-                    continue
-                if labeler0==labeler:
-                    break
-                if (data[taskInfo['jobLabelType'][jobId]]['newAssignmentSize']>0)&\
-                    (data[taskInfo['jobLabelType'][jobId]]['data'].loc[taskInfo['jobLabelClass'][jobId],'newAssignmentTarget'] >= 0):
-                    newAssignDict[jobId] = int(labeler)
-                    if labelType == 'Bbox':
-                        hourlyWorkingCount = cfg.hourlyBboxWorkingCount
-                    elif labelType == 'Seg':
-                        hourlyWorkingCount = cfg.hourlySegWorkingCount
-                    else:
-                        raise Error
-                    data[taskInfo['jobLabelType'][jobId]]['newAssignmentSize'] -= taskInfo['jobSize'][jobId]/hourlyWorkingCount
-                    data[taskInfo['jobLabelType'][jobId]]['data'].loc[taskInfo['jobLabelClass'][jobId],'newAssignmentTarget'] -= taskInfo['jobSize'][jobId]/hourlyWorkingCount
-                    dailyWorkingHour[labeler] -= taskInfo['jobSize'][jobId]/hourlyWorkingCount
-                    taskInfo['jobAssignee'][jobId] = labeler
-                    break
+
+    unassignJobList = [jobId for jobId, assignee in taskInfo['jobAssignee'].items() if assignee==None if taskInfo['jobLabelType'][jobId]==labelType]
+    unassignClassJobDict = defaultdict(list)
+    for jobId in unassignJobList:
+        unassignClassJobDict[taskInfo['jobLabelClass'][jobId]].append(jobId)
+
+    for labeler, data in assignCR.items():
+        if (labeler in labelerInfo.loc[labelerInfo['activate'].map(lambda x: bool(str(x).strip())) & labelerInfo[f'{labelType} 희망'].map(lambda x: bool(str(x).strip()))].index):
+            while (data[labelType]['newAssignmentSize']>0)&(dailyWorkingHour[labeler]>0):
+                assignClass = data[labelType]['data'].loc[unassignClassJobDict.keys(), 'newAssignmentTarget'].idxmax()
+                assignJobId = unassignClassJobDict[assignClass].pop()
+                newAssignDict[assignJobId] = int(labeler)
+                if labelType == 'Bbox':
+                    hourlyWorkingCount = cfg.hourlyBboxWorkingCount
+                elif labelType == 'Seg':
+                    hourlyWorkingCount = cfg.hourlySegWorkingCount
+                else:
+                    raise Error
+                data['Bbox']['newAssignmentSize'] -= taskInfo['jobSize'][assignJobId]/cfg.hourlyBboxWorkingCount
+                data['Seg']['newAssignmentSize'] -= taskInfo['jobSize'][assignJobId]/cfg.hourlySegWorkingCount
+                data[labelType]['data'].loc[assignClass,'newAssignmentTarget'] -= taskInfo['jobSize'][assignJobId]/hourlyWorkingCount
+                dailyWorkingHour[labeler] -= taskInfo['jobSize'][assignJobId]/hourlyWorkingCount
+                taskInfo['jobAssignee'][assignJobId] = labeler
     return newAssignDict
 
 
@@ -518,6 +515,7 @@ def runAssign():
     getAssignCR()
     assign(getNewAssignDict('Seg'))
     assign(getNewAssignDict('Bbox'))
+    print(dailyWorkingHour)
 
 async def mainSelect():
     choice = None
@@ -565,7 +563,7 @@ async def mainSchedule():
     sched.add_job(runAssign,'interval', hours=1, timezone=timezone('Asia/Seoul'), id=f"assign", next_run_time=startTime)
     sched.add_job(getTasksInfo,'interval', minutes=30, timezone=timezone('Asia/Seoul'), id=f"get task info")
     sched.add_job(getLabelerInfo,'interval', minutes=30, timezone=timezone('Asia/Seoul'), id=f"get labeler info")
-    sched.add_job(getDailyWorkingHour, 'cron', hour=16, timezone=timezone('Asia/Seoul'), id=f"init daily working hour")
+    sched.add_job(getDailyWorkingHour, 'cron', hour=15, minute=30, timezone=timezone('Asia/Seoul'), id=f"init daily working hour")
     # updateJobTable = lambda : updateJobAssign(getAssignTable())
     sched.add_job(lambda : updateJobAssign(getAssignTable()), 'interval', minutes=5, id="update Job Assign", timezone=timezone('Asia/Seoul'))
     while True:
@@ -664,6 +662,8 @@ if __name__ == "__main__":
     gc = gs.service_account(filename='nia-dataset-83bf2b5f03fd.json')
     getLabelerInfo()
     getDailyWorkingHour()
+    # dailyWorkingHour ={4: 6.0, 5: 10, 6: 10, 7: 10, 8: 10, 9: 10, 10: 9.0, 11: 4.0, 12: 7.0, 13: -1.0, 14: 10, 15: 10, 16: 10, 17: 10, 18: 10, 19: 10, 20: 10, 21: 9.0, 22: 0.0, 23: 8.0, 24: 0.0, 25: 10, 26: 9.0, 27: 5.0, 28: 10, 44: 10, 47: 5.0, 45: 1.0, 46: 4.0}
+    # runAssign()
     # tt = Project()
     # tt.assignProjAllUnassignedTask()
     if debug:
