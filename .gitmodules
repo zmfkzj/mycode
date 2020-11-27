@@ -1,0 +1,6 @@
+[submodule "CVAT/CVAT_DatasetTools/datumaro"]
+	path = CVAT/CVAT_DatasetTools/datumaro
+	url = https://github.com/zmfkzj/datumaro.git
+[submodule "CVAT/deeplabel"]
+	path = CVAT/deeplabel
+	url = https://github.com/zmfkzj/DeepLabel.git
