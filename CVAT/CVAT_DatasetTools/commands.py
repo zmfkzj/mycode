@@ -3,7 +3,6 @@ from pathlib import Path
 import sys
 # sys.path.insert(0,str(file__/'datumaro'))
 
-# from datumaro.components.project import Project
 from datumaro.cli.__main__ import main
 import os
 import stat
@@ -47,18 +46,24 @@ class Menu:
     def selectAndRun(self):
         self.prevMunu = Menu.prevMunu
         Menu.prevMunu = self
-        rmtree(str(Path('tmp').absolute()), onerror=remove_readonly)
+        if Path('tmp').is_dir():
+            rmtree(str(Path('tmp').absolute()), onerror=remove_readonly)
         consolClear()
         print(self)
-        selNum = input('선택 No: ').strip()
+        while True:
+            selNum = input('선택 No: ').strip()
+            if selNum in self.command.keys():
+                break
+            else:
+                print('입력이 잘못되었습니다. ')
         self.command[selNum].function()
         self.selectAndRun()
 
     def setCommand(self, opt:str, function:Callable, help='') :
         no = str(len(self.command))
         self.command[no] = {"opt": opt,
-                                           "function": function, 
-                                           "help": help}
+                            "function": function, 
+                            "help": help}
         return self
 
     def goToPrev(self):
@@ -69,9 +74,9 @@ class CLI:
         self.datasetsPath = Path('datasets').absolute()
         self.datasetsPath.mkdir(exist_ok=True)
         self.projectsPath = (Path('tmp/projects')).absolute()
-        self.projectsPath.mkdir(exist_ok=True, parents=True)
 
     def importDataset(self, args):
+        self.projectsPath.mkdir(exist_ok=True, parents=True)
         datasetPathList = self.getSubDirList(self.datasetsPath)
         for datasetPath in datasetPathList:
             projPath = str(self.projectsPath/datasetPath.name)
@@ -82,7 +87,7 @@ class CLI:
     def mergeDataset(self):
         projsPathList = self.getSubDirList(self.projectsPath)
         projsPathList = [str(dir) for dir in projsPathList]
-        mergePath = (self.projectsPath/'mergedProject')
+        mergePath = (self.projectsPath/'merged')
         mergePath.mkdir(exist_ok=True)
         merge_args = ['merge', '-o', str(mergePath), '--overwrite', *projsPathList]
         main(merge_args)
@@ -90,7 +95,7 @@ class CLI:
 
     def exportDataset(self, args, merge=False):
         if merge:
-            projectsPathList = [self.projectsPath/'mergedProject']
+            projectsPathList = [self.projectsPath/'merged']
         else:
             projectsPathList = self.getSubDirList(self.projectsPath)
         for proj in projectsPathList:
@@ -127,3 +132,10 @@ class CLI:
         self.importDataset(importArgs)
         self.exportDataset(exportArgs)
         return self
+
+if __name__ == "__main__":
+    command = CLI()
+    mainMenu = Menu('Main').setCommand('dataset 합치기',command.mergeFunction,'여러 데이터셋을 하나로 합칩니다.')\
+                        .setCommand('dataset 변환', command.convertFunction, '다른 형식의 데이터셋으로 바꿉니다. 예) coco format -> voc format')
+
+    mainMenu()
