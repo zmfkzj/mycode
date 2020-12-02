@@ -1,14 +1,14 @@
 {
     "projectId": 1,
     "base_url": "http://58.233.255.221:12280",
-    "token": "edd4d8d6c975fed283e11919097c7d50a5158f96",
+    "token": "80a6b6fd3846fed4dabe82273a3c10a35a81fb06",
     "username": "serveradmin",
     "password": "wnrWkd131@Cv",
     "hourlyBboxWorkingCount": 100,
-    "hourlySegWorkingCount": 50,
+    "hourlySegWorkingCount": 25,
     "dailyWorkingHour": 10,
     "onceAssignWorkingHour": 3,
     "assignInterval": 1,
     "exportFormat": "gspread",
-    "projectFile": "project.csv" 
+    "projectFile": "project.csv"
 }

@@ -66,7 +66,7 @@ def tokenCheck():
     if (not r.ok):
         if r.reason == 'Unauthorized':
             getToken()
-            cfg = EasyDict(readJson())
+            readJson()
             header_gs = {'Accept': 'application/json', 'Authorization': f'Token {cfg.token}'}
         else:
             print("HTTP %i - %s, Message %s" % (r.status_code, r.reason, r.text))
@@ -74,9 +74,9 @@ def tokenCheck():
         print('{} complete'.format(dt.datetime.now(gettz('Asia/Seoul'))))
 
 def readJson():
+    global cfg
     with open(path,'r') as f:
-        cfg = json.load(f)
-    return cfg
+        cfg = EasyDict(json.load(f))
 
 def saveJson(jsonDict):
     with open(path, 'w') as f:
@@ -375,12 +375,14 @@ def getNewAssignDict(labelType):
     unassignJobList = [jobId for jobId, assignee in taskInfo['jobAssignee'].items() if assignee==None if taskInfo['jobLabelType'][jobId]==labelType]
     unassignClassJobDict = defaultdict(list)
     for jobId in unassignJobList:
+        if taskInfo['jobLabelClass'][jobId]=='이음부-손상':
+            print()
         unassignClassJobDict[taskInfo['jobLabelClass'][jobId]].append(jobId)
 
     for labeler, data in assignCR.items():
         if (labeler in labelerInfo.loc[labelerInfo['activate'].map(lambda x: bool(str(x).strip())) & labelerInfo[f'{labelType} 희망'].map(lambda x: bool(str(x).strip()))].index):
             while (data[labelType]['newAssignmentSize']>0)&(dailyWorkingHour[labeler]>0):
-                assignClass = data[labelType]['data'].loc[unassignClassJobDict.keys(), 'newAssignmentTarget'].idxmax()
+                assignClass = data[labelType]['data'].loc[[key for key, jobid in unassignClassJobDict.items() if jobid], 'newAssignmentTarget'].idxmax()
                 assignJobId = unassignClassJobDict[assignClass].pop()
                 newAssignDict[assignJobId] = int(labeler)
                 if labelType == 'Bbox':
@@ -426,8 +428,7 @@ def updateJobAssign(assignTable):
 
     sheet = gc.open('job 할당표').worksheet('job 할당표')
     preAssignTable = pd.DataFrame(sheet.get_all_records()).reindex(columns=cols)
-    if preAssignTable['inCharge'].isna().all():
-        preAssignTable['inCharge'] = preAssignTable['jobAssignee'].map(labelerInfo['inCharge'])
+    preAssignTable.loc[preAssignTable['inCharge'].isna(),'inCharge'] = preAssignTable.loc[preAssignTable['inCharge'].isna(),'jobAssignee'].map(labelerInfo['inCharge'])
     preAssignTable.set_index('job_id',inplace=True)
 
     assignTable['assignTime'].update(preAssignTable['assignTime'])
@@ -512,6 +513,7 @@ def logWorkload():
     print('{} logging workload'.format(dt.datetime.now(gettz('Asia/Seoul'))))
 
 def runAssign():
+    readJson()
     getAssignCR()
     assign(getNewAssignDict('Seg'))
     assign(getNewAssignDict('Bbox'))
@@ -546,13 +548,15 @@ async def mainSelect():
         elif choice == "3":
             getDailyWorkingHour()
             getAssignCR()
-            newAssignDict = getNewAssignDict('Bbox')
+            newBboxAssignDict = getNewAssignDict('Bbox')
+            newSegAssignDict = getNewAssignDict('Seg')
         elif choice == "4":
             updateJobAssign(getAssignTable())
         elif choice == "5":
             logWorkload()
         elif choice == "6":
-            assign(newAssignDict)
+            assign(newBboxAssignDict)
+            assign(newSegAssignDict)
         else:
             print(" ### Wrong option ### ")
 
@@ -564,8 +568,9 @@ async def mainSchedule():
     sched.add_job(getTasksInfo,'interval', minutes=30, timezone=timezone('Asia/Seoul'), id=f"get task info")
     sched.add_job(getLabelerInfo,'interval', minutes=30, timezone=timezone('Asia/Seoul'), id=f"get labeler info")
     sched.add_job(getDailyWorkingHour, 'cron', hour=15, minute=30, timezone=timezone('Asia/Seoul'), id=f"init daily working hour")
-    # updateJobTable = lambda : updateJobAssign(getAssignTable())
+    sched.add_job(lambda : tokenCheck(), 'interval', minutes=5, id="token check", timezone=timezone('Asia/Seoul'))
     sched.add_job(lambda : updateJobAssign(getAssignTable()), 'interval', minutes=5, id="update Job Assign", timezone=timezone('Asia/Seoul'))
+
     while True:
         schedule.run_pending()
 
@@ -653,7 +658,7 @@ if __name__ == "__main__":
     debug=False
     timeFormat = '%y%m%d-%H%M'
     path = 'config.json'
-    cfg = EasyDict(readJson())
+    readJson()
     header_gs = {'Accept': 'application/json', 'Authorization': f'Token {cfg.token}'}
     base_url = getBaseUrl()
     startTime = dt.datetime.now(timezone('Asia/Seoul')).replace(microsecond=0,minute=0,second=0) + dt.timedelta(hours=1)
@@ -662,7 +667,7 @@ if __name__ == "__main__":
     gc = gs.service_account(filename='nia-dataset-83bf2b5f03fd.json')
     getLabelerInfo()
     getDailyWorkingHour()
-    # dailyWorkingHour ={4: 6.0, 5: 10, 6: 10, 7: 10, 8: 10, 9: 10, 10: 9.0, 11: 4.0, 12: 7.0, 13: -1.0, 14: 10, 15: 10, 16: 10, 17: 10, 18: 10, 19: 10, 20: 10, 21: 9.0, 22: 0.0, 23: 8.0, 24: 0.0, 25: 10, 26: 9.0, 27: 5.0, 28: 10, 44: 10, 47: 5.0, 45: 1.0, 46: 4.0}
+    # dailyWorkingHour ={4: 10, 5: 10, 6: 6.0, 7: 10, 8: 10, 9: 10, 10: 10, 11: 8.0, 12: 10, 13: 7.0, 14: 9.0, 15: 10, 16: 10, 17: 7.0, 18: 10, 19: 10, 20: 10, 21: 8.0, 22: 5.0, 23: 8.0, 24: 9.0, 25: 10, 26: 10, 27: 8.0, 28: 8.0, 44: 10, 47: 10, 45: 10, 46: 9.0, 49: 9.0, 50: 10, 51: 10, 52: 9.0, 53: 9.0, 54: 10, 55: 10, 56: 9.0, 57: 10, 58: 9.0, 59: 10, 60: 10, 61: 10}
     # runAssign()
     # tt = Project()
     # tt.assignProjAllUnassignedTask()
