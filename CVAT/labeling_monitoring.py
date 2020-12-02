@@ -12,7 +12,7 @@ from easydict import EasyDict
 import json
 
 def readJson():
-    with open('config.json','r') as f:
+    with open('config_NH.json','r') as f:
         cfg = json.load(f)
     return cfg
 
