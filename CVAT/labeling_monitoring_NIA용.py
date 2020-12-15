@@ -1,22 +1,24 @@
-from collections import defaultdict
-from pandas.core import base
 import schedule
-from typing import DefaultDict
-from dateutil.tz.tz import gettz
 import pandas as pd
 import asyncio as aio
 import requests
+import datetime as dt
+import numpy as np
+import json
+import json
+import gspread as gs
+import random as rd
+
+from collections import defaultdict
+from pandas.core import base
+from typing import DefaultDict
+from dateutil.tz.tz import gettz
 from functools import partial
 from tqdm.asyncio import tqdm
 from copy import Error, deepcopy
-import datetime as dt
 from itertools import cycle
-import numpy as np
-import json
 from easydict import EasyDict
-import json
 from getpass import getpass
-import gspread as gs
 from apscheduler.schedulers.background import BackgroundScheduler
 from pytz import timezone
 
@@ -379,23 +381,31 @@ def getNewAssignDict(labelType):
             print()
         unassignClassJobDict[taskInfo['jobLabelClass'][jobId]].append(jobId)
 
-    for labeler, data in assignCR.items():
-        if (labeler in labelerInfo.loc[labelerInfo['activate'].map(lambda x: bool(str(x).strip())) & labelerInfo[f'{labelType} 희망'].map(lambda x: bool(str(x).strip()))].index):
-            while (data[labelType]['newAssignmentSize']>0)&(dailyWorkingHour[labeler]>0):
-                assignClass = data[labelType]['data'].loc[[key for key, jobid in unassignClassJobDict.items() if jobid], 'newAssignmentTarget'].idxmax()
-                assignJobId = unassignClassJobDict[assignClass].pop()
-                newAssignDict[assignJobId] = int(labeler)
-                if labelType == 'Bbox':
-                    hourlyWorkingCount = cfg.hourlyBboxWorkingCount
-                elif labelType == 'Seg':
-                    hourlyWorkingCount = cfg.hourlySegWorkingCount
-                else:
-                    raise Error
-                data['Bbox']['newAssignmentSize'] -= taskInfo['jobSize'][assignJobId]/cfg.hourlyBboxWorkingCount
-                data['Seg']['newAssignmentSize'] -= taskInfo['jobSize'][assignJobId]/cfg.hourlySegWorkingCount
-                data[labelType]['data'].loc[assignClass,'newAssignmentTarget'] -= taskInfo['jobSize'][assignJobId]/hourlyWorkingCount
-                dailyWorkingHour[labeler] -= taskInfo['jobSize'][assignJobId]/hourlyWorkingCount
-                taskInfo['jobAssignee'][assignJobId] = labeler
+    while True:
+        CR = list(assignCR.items())
+        rd.shuffle(CR)
+        stop = 0
+        for labeler, data in CR:
+            if (labeler in labelerInfo.loc[labelerInfo['activate'].map(lambda x: bool(str(x).strip())) & labelerInfo[f'{labelType} 희망'].map(lambda x: bool(str(x).strip()))].index):
+                unassignClass = [cls for cls, jobid in unassignClassJobDict.items() if jobid]
+                if (data[labelType]['newAssignmentSize']>0)&(dailyWorkingHour[labeler]>0)&bool(unassignClass):
+                    assignClass = data[labelType]['data'].loc[[cls for cls, jobid in unassignClassJobDict.items() if jobid], 'newAssignmentTarget'].idxmax()
+                    assignJobId = unassignClassJobDict[assignClass].pop()
+                    newAssignDict[assignJobId] = int(labeler)
+                    if labelType == 'Bbox':
+                        hourlyWorkingCount = cfg.hourlyBboxWorkingCount
+                    elif labelType == 'Seg':
+                        hourlyWorkingCount = cfg.hourlySegWorkingCount
+                    else:
+                        raise Error
+                    data['Bbox']['newAssignmentSize'] -= taskInfo['jobSize'][assignJobId]/cfg.hourlyBboxWorkingCount
+                    data['Seg']['newAssignmentSize'] -= taskInfo['jobSize'][assignJobId]/cfg.hourlySegWorkingCount
+                    data[labelType]['data'].loc[assignClass,'newAssignmentTarget'] -= taskInfo['jobSize'][assignJobId]/hourlyWorkingCount
+                    dailyWorkingHour[labeler] -= taskInfo['jobSize'][assignJobId]/hourlyWorkingCount
+                    taskInfo['jobAssignee'][assignJobId] = labeler
+                    stop+=1
+        if stop==0:
+            break
     return newAssignDict
 
 
@@ -411,20 +421,26 @@ def assign(newAssignDict):
 
 def getAssignTable():
     getTasksInfo()
+    r = requests.get(base_url+"users", headers=header_gs)
+    userCount = r.json()['count']
+    r = requests.get(base_url+"users", headers=header_gs, params={'page_size': userCount})
+    userdic = {}
+    for user in r.json()['results']:
+        userdic[user['id']] = user['username']
     keysCols = ['project','task_id','task_name','job_id']
     assignTable = pd.DataFrame(taskInfo['keys'], columns=keysCols)
     assignTableCols = ['jobSize', 'jobAssignee', 'jobStatus']
     for col in assignTableCols:
         assignTable[col] = assignTable['job_id'].map(taskInfo[col])
     assignTable['jobUrl'] = assignTable[['task_id','job_id']].apply(lambda x: getJobUrl(x.task_id,x.job_id), axis=1)
-    assignTable['assigneeName'] = assignTable['jobAssignee'].map(labelerInfo['username'])
+    assignTable['assigneeName'] = assignTable['jobAssignee'].map(userdic)
     assignTable['assignTime'] = dt.datetime.now(gettz('Asia/Seoul')).strftime(timeFormat)
     assignTable['inCharge'] = assignTable['jobAssignee'].map(labelerInfo['inCharge'])
     return assignTable
 
 def updateJobAssign(assignTable):
     cols = ['assignTime','project','task_id','task_name','job_id','jobUrl', 'jobSize', 'jobAssignee','assigneeName', 'inCharge', 'jobStatus']
-    assignTable = assignTable.reindex(columns=cols).set_index('job_id').dropna()
+    assignTable = assignTable.reindex(columns=cols).set_index('job_id').dropna(subset=['jobAssignee']).fillna('')
 
     sheet = gc.open('job 할당표').worksheet('job 할당표')
     preAssignTable = pd.DataFrame(sheet.get_all_records()).reindex(columns=cols)
@@ -513,6 +529,7 @@ def logWorkload():
     print('{} logging workload'.format(dt.datetime.now(gettz('Asia/Seoul'))))
 
 def runAssign():
+    print('{} assign start'.format(dt.datetime.now(gettz('Asia/Seoul'))))
     readJson()
     getAssignCR()
     assign(getNewAssignDict('Seg'))
@@ -534,6 +551,7 @@ async def mainSelect():
         4 - Update job assign table
         5 - Update log
         6 - Assign
+        7 - Assign Command
         """)
 
         choice = input("Your choice: ") # What To Do ???
@@ -557,16 +575,18 @@ async def mainSelect():
         elif choice == "6":
             assign(newBboxAssignDict)
             assign(newSegAssignDict)
+        elif choice == "7":
+            runAssign()
         else:
             print(" ### Wrong option ### ")
 
 async def mainSchedule():
+
     sched = BackgroundScheduler()
     sched.start()
     sched.add_job(logWorkload, 'cron', hour=15, minute=30, timezone=timezone('Asia/Seoul'), id=f"logging")
-    sched.add_job(runAssign,'interval', hours=1, timezone=timezone('Asia/Seoul'), id=f"assign", next_run_time=startTime)
-    sched.add_job(getTasksInfo,'interval', minutes=30, timezone=timezone('Asia/Seoul'), id=f"get task info")
-    sched.add_job(getLabelerInfo,'interval', minutes=30, timezone=timezone('Asia/Seoul'), id=f"get labeler info")
+    sched.add_job(runAssign,'interval', minutes=30, timezone=timezone('Asia/Seoul'), id=f"assign", next_run_time=startTime)
+    sched.add_job(getLabelerInfo,'interval', minutes=15, timezone=timezone('Asia/Seoul'), id=f"get labeler info")
     sched.add_job(getDailyWorkingHour, 'cron', hour=15, minute=30, timezone=timezone('Asia/Seoul'), id=f"init daily working hour")
     sched.add_job(lambda : tokenCheck(), 'interval', minutes=5, id="token check", timezone=timezone('Asia/Seoul'))
     sched.add_job(lambda : updateJobAssign(getAssignTable()), 'interval', minutes=5, id="update Job Assign", timezone=timezone('Asia/Seoul'))
