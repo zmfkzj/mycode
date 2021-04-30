@@ -1,6 +1,6 @@
 import os
 import xml.etree.ElementTree as ET
-from util import *
+from util.filecontrol import *
 
 
 change_list = {'MS(Material Seperation)' : 'MS',
@@ -36,8 +36,8 @@ def change_label(path,root, before_label, after_label):
     xml.write(path)
 
 if __name__ == "__main__":
-    path = '/home/tm/Code/darknet/data/test.txt'
-    root = '/home/tm/Code/darknet'
+    path = 'c:/Users/mkkim/Desktop/FullDataset/ImageSets/Main/default.txt'
+    root = 'c:/Users/mkkim/Desktop/'
     analyze_anno(path, root)
     # change_label('/run/user/1000/gvfs/ftp:host=nas62.local/File/결함-YOLOv3/stillcut/191023_당인교_윈치캠영상/C0005 (12-10-2019 9-15-04 AM)_all.txt')
     # change_label('/run/user/1000/gvfs/ftp:host=nas62.local/File/결함-YOLOv3/stillcut/191023_당인교_윈치캠영상/C0005 (12-10-2019 9-15-04 AM)/C0005 034.xml',

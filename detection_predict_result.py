@@ -161,13 +161,13 @@ def get_gt(file_list, form, root, **kwargs):
         elif form=='voc':
             # filename = pickFilename(filename)
             # anno = join(root, f'Annotations/{filename}.xml')
-            anno = join(root, filename.replace('JPEGImages', 'Annotations'))
+            anno = join(root, 'Annotations', filename)
             anno = chgext(anno, '.xml')
             if isfile(anno):
                 gtInimg = loadbbox(anno, 'xml')
                 gt_sub = pd.DataFrame(gtInimg, columns=['class', *LTRB_cols, 'img_W', 'img_H'])
                 gt_sub[LTRB_cols] = gt_sub[LTRB_cols]
-                gt_sub['img'] = filename[filename.find('JPEGImages'):]
+                gt_sub['img'] = filename
                 # if isfile(join(root,f'JPEGImages/{filename}.jpg')):
                 #     gt_sub['img'] = f'JPEGImages/{filename}.jpg'
                 # elif isfile(join(root,f'JPEGImages/{filename}.png')):
