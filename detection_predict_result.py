@@ -156,7 +156,7 @@ def get_gt(file_list, form, root, **kwargs):
                 if isfile(filename):
                     gt_sub['img'] = filename
             else:
-                raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), anno)
+                raise FileNotFoundError
 
         elif form=='voc':
             # filename = pickFilename(filename)

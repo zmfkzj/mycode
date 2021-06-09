@@ -1,11 +1,7 @@
-import pandas as pd
-import numpy as np
+import json
+from pathlib import Path
 
-arrays = [['bar', 'bar', 'baz', 'baz', 'foo', 'foo', 'qux', 'qux'],
-          ['one', 'two', 'one', 'two', 'one', 'two', 'one', 'two']]
-
-tuples = list(zip(*arrays))
-index = pd.MultiIndex.from_tuples(tuples, names=['first', 'second'])
-df = pd.DataFrame(np.random.randn(3, 8), index=['A', 'B', 'C'], columns=index)
-
-print(df[('bar','one')])
+with open(str(Path('/Users/minkyu/Desktop/무제 폴더/lv1/result_test.json')),'r') as f:
+    a = json.load(f)
+b = json.dumps(a,ensure_ascii=False, indent=4)
+print(a)
