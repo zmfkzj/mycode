@@ -36,14 +36,14 @@ goal:int = 15 # 목표 배수 10배면 10
 # seqs = [aug_cfg.seq_Crop, aug_cfg.seq_Pad]
 aug_option = [
         iaa.CropToFixedSize(width=1000, height=1000),
-        iaa.Fliplr(0.5),
-        iaa.Flipud(0.5),
-        iaa.geometric.Rot90((0,3),keep_size=False),
-        iaa.Multiply((0.95,1.05), per_channel=True),
-        iaa.MultiplyHueAndSaturation((0.5,1.5),per_channel=False),
-        iaa.MotionBlur(k=(3,5)),
-        iaa.Grayscale(1),
-        iaa.RemoveCBAsByOutOfImageFraction(0.8),
+        # iaa.Fliplr(0.5),
+        # iaa.Flipud(0.5),
+        # iaa.geometric.Rot90((0,3),keep_size=False),
+        # iaa.Multiply((0.95,1.05), per_channel=True),
+        # iaa.MultiplyHueAndSaturation((0.5,1.5),per_channel=False),
+        # iaa.MotionBlur(k=(3,5)),
+        # iaa.Grayscale(1),
+        # iaa.RemoveCBAsByOutOfImageFraction(0.8),
         iaa.ClipCBAsToImagePlanes()
         ]
 # downscale = (1400,1400) # tuple, list or None
