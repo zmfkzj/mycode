@@ -83,8 +83,7 @@ def crop(image, polygons):
 
     seq = iaa.Sequential([
         iaa.CropToFixedSize(width=crop_width, height=crop_height),
-        iaa.RemoveCBAsByOutOfImageFraction(0.9)
-        # iaa.ClipCBAsToImagePlanes()
+        iaa.RemoveCBAsByOutOfImageFraction(.9)
     ])
 
     image_aug, polys_aug = seq(image=image, polygons=polys)
@@ -147,7 +146,8 @@ for image_id in coco.getImgIds():
             isc+=1
             for polygon in crop_anno.polygons:
                 if polygon.coords.shape[0] != 0:
-                    add_anno(polygon.clip_out_of_image(crop_image)[0],image_id)
+                    for clip_polygon in polygon.clip_out_of_image(crop_image):
+                        add_anno(clip_polygon,image_id)
         totalc+=1
 
 os.makedirs(coco_dataset/'annotations_aug',exist_ok=True)
