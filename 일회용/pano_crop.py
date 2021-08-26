@@ -7,11 +7,12 @@ import json
 from pathlib import Path
 import numpy as np
 import cv2
-from numpy.lib.arraysetops import isin
 from pycocotools.coco import COCO
 from copy import deepcopy
+from shapely.geometry.point import Point
 from shapely.geometry.polygon import Polygon as shapely_Polygon
-from shapely.geometry.multipolygon import MultiPolygon as shapely_MultiPolygon
+from shapely.validation import make_valid,explain_validity
+from shapely.ops import nearest_points as get_nearest_points
 
 ##############################################################################
 coco_dataset = Path('d:/pano16_coco')
@@ -68,17 +69,69 @@ ia.seed(1)
 def cvtSeg(coco_seg):
     return [(coco_seg[idx],coco_seg[idx+1]) for idx in range(0,len(coco_seg),2)]
 
+def signed_area(pr2):
+     """Return the signed area enclosed by a ring using the linear time
+     algorithm at http://www.cgafaq.info/wiki/Polygon_Area. A value >= 0
+     indicates a counter-clockwise oriented ring."""
+     xs, ys = map(list, zip(*pr2))
+     xs.append(xs[1])
+     ys.append(ys[1])
+     return sum(xs[i]*(ys[i+1]-ys[i-1]) for i in range(1, len(pr2)))/2.0
+
+def rotation_dir(pr):
+     signedarea = signed_area(pr)
+     if signedarea > 0:
+         return "anti-clockwise"
+     elif signedarea < 0:
+         return "clockwise"
+     else:
+         return "UNKNOWN"
+
+def merge_interior_exterior_polygons(shapely_poly:shapely_Polygon, label):
+    exterior = list(shapely_poly.exterior.coords)
+    for inter in shapely_poly.interiors:
+        interior = list(inter.coords)
+        exterior_nearest_point, interior_nearest_point = [list(point.coords) for point in get_nearest_points(shapely_Polygon(exterior),shapely_Polygon(interior))]
+        exterior_polygon = Polygon(exterior,label).change_first_point_by_coords(*exterior_nearest_point,max_distance=None)
+        interior_polygon = Polygon(interior,label).change_first_point_by_coords(*interior_nearest_point,max_distance=None)
+
+        exterior_points = [exterior_nearest_point]+exterior_polygon.coords.tolist()+[exterior_nearest_point]
+        interior_points = [interior_nearest_point]+interior_polygon.coords.tolist()+[interior_nearest_point]
+        
+        exterior_dir = rotation_dir(exterior_points)
+        interior_dir = rotation_dir(interior_points)
+        if exterior_dir==interior_dir:
+            interior_points = interior_points[::-1]
+
+        new_points = exterior_points+interior_points
+        new_polygon = Polygon(new_points)
+        exterior = new_polygon.coords.tolist()
+    return Polygon(exterior,label)
+
 def process_invalid_polygons(polygons:Polygon):
     shapely_poly = polygons.to_shapely_polygon().buffer(0)
 
     if isinstance(shapely_poly,shapely_Polygon):
-        return Polygon(list(shapely_poly.exterior.coords),polygons.label)
+        return merge_interior_exterior_polygons(shapely_poly,polygons.label)
     else:
-        return Polygon(list(list(shapely_poly)[0].exterior.coords),polygons.label)
+        polys = []
+        for single_polygon in list(shapely_poly):
+            polys.append(merge_interior_exterior_polygons(single_polygon,polygons.label))
+        return polys
 
+def merge_list(list_in_list) :
+    if list_in_list:
+        x,xs = list_in_list[0], list_in_list[1:]
+        if xs:
+            return x+merge_list(xs)
+        else:
+            return x
+    else:
+        return []
 
 def crop(image, polygons):
-    polygons = [process_invalid_polygons(poly) if not poly.is_valid else poly for poly in polygons]
+    polygons = [process_invalid_polygons(poly) if not poly.is_valid else [poly] for poly in polygons]
+    polygons = merge_list(polygons)
     polys = PolygonsOnImage(polygons,shape=image.shape)
 
     seq = iaa.Sequential([
@@ -113,7 +166,7 @@ def add_anno(polygon:Polygon, image_id):
     coco_anno['image_id'] = image_id
     coco_anno['category_id'] = polygon.label
     bbox = polygon.to_bounding_box()
-    coco_anno['bbox'] = [float(c) for c in [bbox.x1, bbox.x2, bbox.width,bbox.height]]
+    coco_anno['bbox'] = [float(c) for c in [bbox.x1, bbox.y1, bbox.width,bbox.height]]
     coco_anno['area'] = float( polygon.area )
     coco_base['annotations'].append(coco_anno)
 
@@ -146,8 +199,10 @@ for image_id in coco.getImgIds():
             isc+=1
             for polygon in crop_anno.polygons:
                 if polygon.coords.shape[0] != 0:
-                    for clip_polygon in polygon.clip_out_of_image(crop_image):
-                        add_anno(clip_polygon,image_id)
+                    polygon = make_valid(polygon)
+                    add_anno(polygon,image_id)
+                    # for clip_polygon in polygon.clip_out_of_image(crop_image):
+                    #     add_anno(clip_polygon,image_id)
         totalc+=1
 
 os.makedirs(coco_dataset/'annotations_aug',exist_ok=True)
