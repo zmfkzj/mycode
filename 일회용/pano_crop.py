@@ -159,10 +159,17 @@ def get_nearest_points(polygon_points1, polygon_points2):
     polygons1_point,polygons2_point = _get_point(polygon_points1, polygon_points2)
     start_index1 = get_nearest_index(polygon_points1,polygons1_point)
     start_index2 = get_nearest_index(polygon_points2,polygons2_point)
-    new_polygons1 = Polygon(polygon_points1).change_first_point_by_index(start_index1-1)
-    new_polygons2 = Polygon(polygon_points2).change_first_point_by_index(start_index2-1)
+    new_polygons1 = Polygon(polygon_points1).change_first_point_by_index(start_index1-1 if start_index1!=0 else len(polygon_points1)-1)
+    new_polygons2 = Polygon(polygon_points2).change_first_point_by_index(start_index2-1 if start_index2!=0 else len(polygon_points2)-1)
     
-    return _get_point(new_polygons1[:3],new_polygons2[:3], product=100)
+    # return _get_point(new_polygons1[:3],new_polygons2[:3], product=100)
+    a,b =  _get_point(new_polygons1.coords.tolist()[:3],new_polygons2.coords.tolist()[:3], product=100)
+    plt.figure()
+    plt.plot(*zip(*new_polygons1.coords.tolist()[:3]))
+    plt.plot(*zip(*new_polygons2.coords.tolist()[:3]))
+    plt.scatter(a,b)
+    plt.show()
+    return a,b
 
 def get_nearest_index(polygon_points,point):
     return_idx = 0
