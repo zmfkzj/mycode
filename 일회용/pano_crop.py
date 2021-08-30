@@ -8,7 +8,6 @@ import json
 from pathlib import Path
 import numpy as np
 import cv2
-from numpy.matrixlib import defmatrix
 from pycocotools.coco import COCO
 from copy import deepcopy
 from shapely.geometry.polygon import Polygon as shapely_Polygon
@@ -20,7 +19,8 @@ limit_number = 100000
 sys.setrecursionlimit(limit_number)
 
 ##############################################################################
-coco_dataset = Path.home()/'pano16_coco'
+# coco_dataset = Path.home()/'pano16_coco'
+coco_dataset = Path('d:/pano16_coco')
 image_dir = coco_dataset/'images'
 
 coco = COCO(str(coco_dataset/'annotations/instances_default.json'))
@@ -74,23 +74,29 @@ ia.seed(1)
 def cvtSeg(coco_seg):
     return [(coco_seg[idx],coco_seg[idx+1]) for idx in range(0,len(coco_seg),2)]
 
-def signed_area(pr2):
-     """Return the signed area enclosed by a ring using the linear time
-     algorithm at http://www.cgafaq.info/wiki/Polygon_Area. A value >= 0
-     indicates a counter-clockwise oriented ring."""
-     xs, ys = map(list, zip(*pr2))
-     xs.append(xs[1])
-     ys.append(ys[1])
-     return sum(xs[i]*(ys[i+1]-ys[i-1]) for i in range(1, len(pr2)))/2.0
+def is_divide_pt(x11,y11, x12,y12, x21,y21, x22,y22):
 
-def rotation_dir(pr):
-     signedarea = signed_area(pr)
-     if signedarea > 0:
-         return "anti-clockwise"
-     elif signedarea < 0:
-         return "clockwise"
-     else:
-         return "UNKNOWN"
+    '''input: 4 points
+    output: True/False
+    '''
+    #  // line1 extension이 line2의 두 점을 양분하는지 검사..
+    # 직선의 양분 판단
+    f1= (x12-x11)*(y21-y11) - (y12-y11)*(x21-x11)
+    f2= (x12-x11)*(y22-y11) - (y12-y11)*(x22-x11)
+    if f1*f2 < 0 :
+      return True
+    else:
+      return False
+
+def is_cross(polygon1, polygon2):
+    x11,y11 = polygon1[-1]
+    x12,y12 = polygon2[0]
+    x21,y21 = polygon2[-1]
+    x22,y22 = polygon1[0]
+    b1 = is_divide_pt(x11,y11, x12,y12, x21,y21, x22,y22)
+    b2 = is_divide_pt(x21,y21, x22,y22, x11,y11, x12,y12)
+    if b1 and b2:
+        return True
 
 def check_beetween_points(two_points,point):
     point1, point2 = two_points
@@ -121,14 +127,14 @@ def check_beetween_points(two_points,point):
     else:
         return False
 
-def make_dense_points(sparse_points):
+def make_dense_points(sparse_points, product=1):
     '''
     return (origin_marker, points)
     '''
     dense_points = []
     for idx in range(1,len(sparse_points)):
         d = np.sqrt(np.sum(np.square(np.array(sparse_points[idx-1])-np.array(sparse_points[idx]))))
-        points = np.linspace(sparse_points[idx-1],sparse_points[idx],num=int(d)+1,endpoint=False).tolist()
+        points = np.linspace(sparse_points[idx-1],sparse_points[idx],num=int(d)*product+1,endpoint=False).tolist()
         origin_marker = np.zeros(len(points))
         origin_marker[0] = 1
         dense_points.append(list(zip(origin_marker.astype(bool).tolist(),points)))
@@ -137,18 +143,26 @@ def make_dense_points(sparse_points):
     return list(zip(*merge_points))
 
 def get_nearest_points(polygon_points1, polygon_points2):
-    markers1, dense_points1 = make_dense_points(polygon_points1)
-    markers2, dense_points2 = make_dense_points(polygon_points2)
 
-    polygon_array1 = np.array(dense_points1)
-    polygon_array2 = np.array(dense_points2)
+    def _get_point(polygon_points1, polygon_points2, product=1):
+        markers1, dense_points1 = make_dense_points(polygon_points1, product)
+        markers2, dense_points2 = make_dense_points(polygon_points2, product)
+        polygon_array1 = np.array(dense_points1)
+        polygon_array2 = np.array(dense_points2)
 
-    polygon_array1 = np.expand_dims(polygon_array1,0).transpose(1,0,2)
-    polygon_array2 = np.expand_dims(polygon_array2,0)
-    distance = np.sqrt(np.sum(np.square(polygon_array1-polygon_array2),axis=2))
-    idx1, idx2 = np.unravel_index(np.argmin(distance),distance.shape)
-    return (dense_points1[int(idx1)], dense_points2[int(idx2)])
-
+        polygon_array1 = np.expand_dims(polygon_array1,0).transpose(1,0,2)
+        polygon_array2 = np.expand_dims(polygon_array2,0)
+        distance = np.sqrt(np.sum(np.square(polygon_array1-polygon_array2),axis=2))
+        idx1, idx2 = np.unravel_index(np.argmin(distance),distance.shape)
+        return (dense_points1[int(idx1)], dense_points2[int(idx2)])
+    
+    polygons1_point,polygons2_point = _get_point(polygon_points1, polygon_points2)
+    start_index1 = get_nearest_index(polygon_points1,polygons1_point)
+    start_index2 = get_nearest_index(polygon_points2,polygons2_point)
+    new_polygons1 = Polygon(polygon_points1).change_first_point_by_index(start_index1-1)
+    new_polygons2 = Polygon(polygon_points2).change_first_point_by_index(start_index2-1)
+    
+    return _get_point(new_polygons1[:3],new_polygons2[:3], product=100)
 
 def get_nearest_index(polygon_points,point):
     return_idx = 0
@@ -183,19 +197,25 @@ def get_distance(point1, point2):
     point2 = np.array(point2)
     return np.sqrt(np.sum(np.square(point1-point2)))
 
-def merge_interior_exterior_polygons(shapely_poly:shapely_Polygon, label):
-    exterior = list(shapely_poly.exterior.coords)
-    nearest_points = [ get_nearest_points(exterior,list(inter.coords)) for inter in shapely_poly.interiors]
-    distancese = [get_distance(*points) for points in nearest_points]
-    sorted_interiors = sorted(zip(distancese, shapely_poly.interiors),key=lambda d: d[0])
-    for _, inter in sorted_interiors:
-        interior = list(inter.coords)
-        exterior_nearest_point, interior_nearest_point = get_nearest_points(exterior,interior)
+def _merge_polygons(exterior, interiors):
+    if not interiors:
+        return exterior
+    else:
+        if len(interiors)==1:
+            nearest_interior = interiors[0]
+            other_interior = []
+        else:
+            nearest_points = [get_nearest_points(exterior,interior) for interior in interiors]
+            distancese = [get_distance(*points) for points in nearest_points]
+            sorted_interiors = sorted(zip(distancese, interiors),key=lambda d: d[0])
+            (_,nearest_interior), other_interior = sorted_interiors[0],[i for d,i in sorted_interiors[1:]]
+
+        exterior_nearest_point, interior_nearest_point = get_nearest_points(exterior,nearest_interior)
 
         exterior_start_index = get_nearest_index(exterior,exterior_nearest_point)
-        interior_start_index = get_nearest_index(interior,interior_nearest_point)
-        exterior_polygon = Polygon(exterior,label).change_first_point_by_index(exterior_start_index)
-        interior_polygon = Polygon(interior,label).change_first_point_by_index(interior_start_index)
+        interior_start_index = get_nearest_index(nearest_interior,interior_nearest_point)
+        exterior_polygon = Polygon(exterior).change_first_point_by_index(exterior_start_index)
+        interior_polygon = Polygon(nearest_interior).change_first_point_by_index(interior_start_index)
 
         exterior_points = [exterior_nearest_point]+exterior_polygon.coords.tolist()+[exterior_nearest_point]
         interior_points = [interior_nearest_point]+interior_polygon.coords.tolist()+[interior_nearest_point]
@@ -205,14 +225,24 @@ def merge_interior_exterior_polygons(shapely_poly:shapely_Polygon, label):
         interior_points = rm_duple_point(interior_points)
         interior_points = add_gap(interior_points)
 
-        # exterior_dir = rotation_dir(exterior_points)
-        # interior_dir = rotation_dir(interior_points)
-        # # if exterior_dir==interior_dir:
-        # #     interior_points = interior_points[::-1]
+        if is_cross(exterior_points, interior_points):
+            interior_points = interior_points[::-1]
 
-        exterior = exterior_points+interior_points
+        new_exterior = exterior_points+interior_points
+        if not Polygon(new_exterior).is_valid:
+            plt.figure()
+            plt.plot(*zip(*new_exterior))
+            plt.scatter(*zip(*new_exterior), s=5)
+            plt.scatter(*new_exterior[0])
+            plt.show()
+        return _merge_polygons(new_exterior,other_interior)
 
-    return Polygon(exterior,label)
+def merge_interior_exterior_polygons(shapely_poly:shapely_Polygon, label):
+    exterior = list(shapely_poly.exterior.coords)
+    interiors = [list(inter.coords) for inter in shapely_poly.interiors]
+    merged_exterior = _merge_polygons(exterior,interiors)
+
+    return Polygon(merged_exterior,label)
 
 def process_invalid_polygons(polygons:Polygon):
     shapely_poly = polygons.to_shapely_polygon().buffer(0)
@@ -238,13 +268,12 @@ def merge_list(list_in_list) :
         return []
 
 def crop(image, polygons):
-    polygons = [process_invalid_polygons(poly) if not poly.is_valid else [poly] for poly in polygons]
     polygons = merge_list(polygons)
     polys = PolygonsOnImage(polygons,shape=image.shape)
 
     seq = iaa.Sequential([
         iaa.CropToFixedSize(width=crop_width, height=crop_height),
-        # iaa.RemoveCBAsByOutOfImageFraction(.9)
+        iaa.RemoveCBAsByOutOfImageFraction(.95)
     ])
 
     image_aug, polys_aug = seq(image=image, polygons=polys)
@@ -278,7 +307,6 @@ def add_anno(polygon:Polygon, image_id):
     coco_anno['area'] = float( polygon.area )
     coco_base['annotations'].append(coco_anno)
 
-
 coco_base['categories'] = list(coco.cats.values())
 
 for image_id in coco.getImgIds():
@@ -290,6 +318,7 @@ for image_id in coco.getImgIds():
 
     coco_annos = coco.loadAnns(coco.getAnnIds(imgIds=image_id))
     polygons = [Polygon(cvtSeg(anno['segmentation'][0]),label=anno['category_id']) for anno in coco_annos if anno['segmentation']]
+    polygons = [process_invalid_polygons(poly) if not poly.is_valid else [poly] for poly in polygons]
     os.makedirs(image_dir/'../images_aug',exist_ok=True)
     isc=0
     totalc=0
@@ -307,9 +336,9 @@ for image_id in coco.getImgIds():
             isc+=1
             for polygon in crop_anno.polygons:
                 if polygon.coords.shape[0] != 0:
-                    add_anno(polygon,image_id)
-                    # for clip_polygon in polygon.clip_out_of_image(crop_image):
-                    #     add_anno(clip_polygon,image_id)
+                    # add_anno(polygon,image_id)
+                    for clip_polygon in polygon.clip_out_of_image(crop_image):
+                        add_anno(clip_polygon,image_id)
         totalc+=1
 
 os.makedirs(coco_dataset/'annotations_aug',exist_ok=True)
