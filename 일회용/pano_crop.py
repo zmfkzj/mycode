@@ -6,6 +6,7 @@ import os
 
 import json
 from pathlib import Path
+from imgaug.parameters import Uniform
 import numpy as np
 import cv2
 from pycocotools.coco import COCO
@@ -274,12 +275,12 @@ def merge_list(list_in_list) :
     else:
         return []
 
-def crop(image, polygons):
+def crop(image, polygons, position=Uniform()):
     polygons = merge_list(polygons)
     polys = PolygonsOnImage(polygons,shape=image.shape)
 
     seq = iaa.Sequential([
-        iaa.CropToFixedSize(width=crop_width, height=crop_height),
+        iaa.CropToFixedSize(width=crop_width, height=crop_height, position=position),
         iaa.RemoveCBAsByOutOfImageFraction(.95)
     ])
 
