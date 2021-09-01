@@ -6,6 +6,7 @@ import os
 
 import json
 from pathlib import Path
+from imgaug.parameters import Uniform
 import numpy as np
 import cv2
 from pycocotools.coco import COCO
@@ -21,12 +22,13 @@ sys.setrecursionlimit(limit_number)
 ##############################################################################
 coco_dataset = Path.home()/'pano16_coco'
 # coco_dataset = Path('d:/pano16_coco')
+
+crop_width, crop_height = 1000,600
+count_per_img = 200
+##############################################################################
 image_dir = coco_dataset/'images'
 
 coco = COCO(str(coco_dataset/'annotations/instances_default.json'))
-crop_width, crop_height = 1000,600
-
-##############################################################################
 coco_base_format = \
     {"licenses": [
         {"name": "",
@@ -271,13 +273,25 @@ def merge_list(list_in_list) :
     else:
         return []
 
-def crop(image, polygons):
+def crop(image, polygons, position='uniform'):
     polygons = merge_list(polygons)
     polys = PolygonsOnImage(polygons,shape=image.shape)
+    if position != 'uniform':
+        t,l= position
+        b,r = t+crop_height, l+crop_width
+        top_crop = t
+        right_crop = image.shape[1]-r-1 if (image.shape[1]-r)>=0 else 0
+        bottom_crop = image.shape[0]-b if (image.shape[0]-b)>=0 else 0
+        left_crop = l
+        px = (top_crop,right_crop,bottom_crop,left_crop)
+        crop_augmenter = [ iaa.Crop(px,keep_size=False, sample_independently=False)]
+    else:
+        crop_augmenter = [iaa.CropToFixedSize(width=crop_width, height=crop_height,position='uniform')]
+
 
     seq = iaa.Sequential([
-        iaa.CropToFixedSize(width=crop_width, height=crop_height),
-        iaa.RemoveCBAsByOutOfImageFraction(.95)
+        *crop_augmenter,
+        iaa.RemoveCBAsByOutOfImageFraction(.99)
     ])
 
     image_aug, polys_aug = seq(image=image, polygons=polys)
@@ -313,6 +327,12 @@ def add_anno(polygon:Polygon, image_id):
 
 coco_base['categories'] = list(coco.cats.values())
 
+def divide_image(pano_image:np.ndarray,divide_size:tuple, stride_size:tuple):
+    pano_h, pano_w = pano_image.shape[:2]
+    for start_h in np.arange(pano_h,step=stride_size[0]):
+        for start_w in np.arange(pano_w,step=stride_size[1]):
+            yield (start_h,start_w)
+
 for image_id in coco.getImgIds():
     coco_image = coco.loadImgs(image_id)[0]
 
@@ -323,13 +343,18 @@ for image_id in coco.getImgIds():
     coco_annos = coco.loadAnns(coco.getAnnIds(imgIds=image_id))
     polygons = [Polygon(cvtSeg(anno['segmentation'][0]),label=anno['category_id']) for anno in coco_annos if anno['segmentation']]
     polygons = [process_invalid_polygons(poly) if not poly.is_valid else [poly] for poly in polygons]
+
+
     os.makedirs(image_dir/'../images_aug',exist_ok=True)
     isc=0
     totalc=0
-    while (isc<100) and (totalc<200):
-        crop_image, crop_anno = crop(image, polygons)
+    # while (isc<100) and (totalc<200):
+    #     crop_image, crop_anno = crop(image, polygons)
+    for start_h, start_w in divide_image(image,(crop_height, crop_width),(crop_height, crop_width)):
+        crop_image, crop_anno = crop(image, polygons, position=(int(start_h), int(start_w)))
         result, encoded_image = cv2.imencode(image_path.suffix,crop_image)
-        new_image_name = image_path.with_name(f'{image_path.stem}_{totalc}{image_path.suffix}').name
+        new_image_name = image_path.with_name(f'{image_path.stem}_{start_h}_{start_w}{image_path.suffix}').name
+        # new_image_name = image_path.with_name(f'{image_path.stem}_{totalc}{image_path.suffix}').name
 
         if result:
             with open(image_dir/'../images_aug'/new_image_name, 'w+b') as f:
