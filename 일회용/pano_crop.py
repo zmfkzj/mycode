@@ -20,14 +20,15 @@ limit_number = 100000
 sys.setrecursionlimit(limit_number)
 
 ##############################################################################
-# coco_dataset = Path.home()/'pano16_coco'
-coco_dataset = Path('d:/pano16_coco')
+coco_dataset = Path.home()/'pano16_coco'
+# coco_dataset = Path('d:/pano16_coco')
+
+crop_width, crop_height = 1000,600
+count_per_img = 200
+##############################################################################
 image_dir = coco_dataset/'images'
 
 coco = COCO(str(coco_dataset/'annotations/instances_default.json'))
-crop_width, crop_height = 1000,600
-
-##############################################################################
 coco_base_format = \
     {"licenses": [
         {"name": "",
@@ -143,34 +144,18 @@ def make_dense_points(sparse_points, product=1):
     merge_points.append((True, sparse_points[-1]))
     return list(zip(*merge_points))
 
-def get_nearest_points(polygon_points1, polygon_points2):
+def get_nearest_points(polygon_points1, polygon_points2, product=1):
+    markers1, dense_points1 = make_dense_points(polygon_points1, product)
+    markers2, dense_points2 = make_dense_points(polygon_points2, product)
+    dense_array1 = np.array(dense_points1)
+    dense_array2 = np.array(dense_points2)
 
-    def _get_point(polygon_points1, polygon_points2, product=1):
-        markers1, dense_points1 = make_dense_points(polygon_points1, product)
-        markers2, dense_points2 = make_dense_points(polygon_points2, product)
-        polygon_array1 = np.array(dense_points1)
-        polygon_array2 = np.array(dense_points2)
+    dense_array1 = np.expand_dims(dense_array1,0).transpose(1,0,2)
+    dense_array2 = np.expand_dims(dense_array2,0)
+    distance = np.sqrt(np.sum(np.square(dense_array1-dense_array2),axis=2))
+    idx1, idx2 = np.unravel_index(np.argmin(distance),distance.shape)
 
-        polygon_array1 = np.expand_dims(polygon_array1,0).transpose(1,0,2)
-        polygon_array2 = np.expand_dims(polygon_array2,0)
-        distance = np.sqrt(np.sum(np.square(polygon_array1-polygon_array2),axis=2))
-        idx1, idx2 = np.unravel_index(np.argmin(distance),distance.shape)
-        return (dense_points1[int(idx1)], dense_points2[int(idx2)])
-    
-    polygons1_point,polygons2_point = _get_point(polygon_points1, polygon_points2)
-    start_index1 = get_nearest_index(polygon_points1,polygons1_point)
-    start_index2 = get_nearest_index(polygon_points2,polygons2_point)
-    new_polygons1 = Polygon(polygon_points1).change_first_point_by_index(start_index1-1 if start_index1!=0 else len(polygon_points1)-1)
-    new_polygons2 = Polygon(polygon_points2).change_first_point_by_index(start_index2-1 if start_index2!=0 else len(polygon_points2)-1)
-    
-    # return _get_point(new_polygons1[:3],new_polygons2[:3], product=100)
-    a,b =  _get_point(new_polygons1.coords.tolist()[:3],new_polygons2.coords.tolist()[:3], product=100)
-    plt.figure()
-    plt.plot(*zip(*new_polygons1.coords.tolist()[:3]))
-    plt.plot(*zip(*new_polygons2.coords.tolist()[:3]))
-    plt.scatter(a,b)
-    plt.show()
-    return a,b
+    return (dense_points1[int(idx1)], dense_points2[int(idx2)])
 
 def get_nearest_index(polygon_points,point):
     return_idx = 0
@@ -181,10 +166,15 @@ def get_nearest_index(polygon_points,point):
         else:
             return_idx+=1
             continue
+    plt.figure()
+    plt.plot(*zip(*polygon_points))
+    plt.scatter(*zip(*polygon_points))
+    plt.scatter(*point)
+    plt.show()
     raise Exception
 
-def add_gap(polygon_points, gap=1):
-    markers, dense_points = make_dense_points(polygon_points)
+def add_gap(polygon_points, gap=10):
+    markers, dense_points = make_dense_points(polygon_points,product=10)
     new_points = dense_points[gap:-(gap+1)]
     new_markers = list(markers[gap:-(gap+1)])
     new_markers[0] = True
@@ -206,17 +196,19 @@ def get_distance(point1, point2):
     return np.sqrt(np.sum(np.square(point1-point2)))
 
 def _merge_polygons(exterior, interiors):
+    exterior = exterior+[exterior[0]]
     if not interiors:
         return exterior
     else:
         if len(interiors)==1:
-            nearest_interior = interiors[0]
-            other_interior = []
+            nearest_interior = interiors[0]+[interiors[0][0]]
+            other_interiors = []
         else:
             nearest_points = [get_nearest_points(exterior,interior) for interior in interiors]
             distancese = [get_distance(*points) for points in nearest_points]
             sorted_interiors = sorted(zip(distancese, interiors),key=lambda d: d[0])
-            (_,nearest_interior), other_interior = sorted_interiors[0],[i for d,i in sorted_interiors[1:]]
+            (_,nearest_interior), other_interiors = sorted_interiors[0],[i for d,i in sorted_interiors[1:]]
+            nearest_interior = nearest_interior+[nearest_interior[0]]
 
         exterior_nearest_point, interior_nearest_point = get_nearest_points(exterior,nearest_interior)
 
@@ -229,21 +221,27 @@ def _merge_polygons(exterior, interiors):
         interior_points = [interior_nearest_point]+interior_polygon.coords.tolist()+[interior_nearest_point]
 
         exterior_points = rm_duple_point(exterior_points)
-        exterior_points = add_gap(exterior_points)
+        exterior_points = add_gap(exterior_points, gap=1)
         interior_points = rm_duple_point(interior_points)
-        interior_points = add_gap(interior_points)
-
-        if is_cross(exterior_points, interior_points):
-            interior_points = interior_points[::-1]
+        interior_points = add_gap(interior_points, gap=1)
 
         new_exterior = exterior_points+interior_points
+        while not Polygon(new_exterior).is_valid:
+            interior_points = interior_points[::-1]
+            new_exterior = exterior_points+interior_points
+            if not Polygon(new_exterior).is_valid:
+                exterior_points = add_gap(exterior_points, gap=1)
+                interior_points = add_gap(interior_points, gap=1)
+
+        new_exterior = exterior_points+interior_points
+
         if not Polygon(new_exterior).is_valid:
             plt.figure()
             plt.plot(*zip(*new_exterior))
             plt.scatter(*zip(*new_exterior), s=5)
             plt.scatter(*new_exterior[0])
             plt.show()
-        return _merge_polygons(new_exterior,other_interior)
+        return _merge_polygons(new_exterior,other_interiors)
 
 def merge_interior_exterior_polygons(shapely_poly:shapely_Polygon, label):
     exterior = list(shapely_poly.exterior.coords)
@@ -275,13 +273,25 @@ def merge_list(list_in_list) :
     else:
         return []
 
-def crop(image, polygons, position=Uniform()):
+def crop(image, polygons, position='uniform'):
     polygons = merge_list(polygons)
     polys = PolygonsOnImage(polygons,shape=image.shape)
+    if position != 'uniform':
+        t,l= position
+        b,r = t+crop_height, l+crop_width
+        top_crop = t
+        right_crop = image.shape[1]-r-1 if (image.shape[1]-r)>=0 else 0
+        bottom_crop = image.shape[0]-b if (image.shape[0]-b)>=0 else 0
+        left_crop = l
+        px = (top_crop,right_crop,bottom_crop,left_crop)
+        crop_augmenter = [ iaa.Crop(px,keep_size=False, sample_independently=False)]
+    else:
+        crop_augmenter = [iaa.CropToFixedSize(width=crop_width, height=crop_height,position='uniform')]
+
 
     seq = iaa.Sequential([
-        iaa.CropToFixedSize(width=crop_width, height=crop_height, position=position),
-        iaa.RemoveCBAsByOutOfImageFraction(.95)
+        *crop_augmenter,
+        iaa.RemoveCBAsByOutOfImageFraction(.99)
     ])
 
     image_aug, polys_aug = seq(image=image, polygons=polys)
@@ -317,6 +327,12 @@ def add_anno(polygon:Polygon, image_id):
 
 coco_base['categories'] = list(coco.cats.values())
 
+def divide_image(pano_image:np.ndarray,divide_size:tuple, stride_size:tuple):
+    pano_h, pano_w = pano_image.shape[:2]
+    for start_h in np.arange(pano_h,step=stride_size[0]):
+        for start_w in np.arange(pano_w,step=stride_size[1]):
+            yield (start_h,start_w)
+
 for image_id in coco.getImgIds():
     coco_image = coco.loadImgs(image_id)[0]
 
@@ -327,13 +343,18 @@ for image_id in coco.getImgIds():
     coco_annos = coco.loadAnns(coco.getAnnIds(imgIds=image_id))
     polygons = [Polygon(cvtSeg(anno['segmentation'][0]),label=anno['category_id']) for anno in coco_annos if anno['segmentation']]
     polygons = [process_invalid_polygons(poly) if not poly.is_valid else [poly] for poly in polygons]
+
+
     os.makedirs(image_dir/'../images_aug',exist_ok=True)
     isc=0
     totalc=0
-    while (isc<100) and (totalc<200):
-        crop_image, crop_anno = crop(image, polygons)
+    # while (isc<100) and (totalc<count_per_img):
+    #     crop_image, crop_anno = crop(image, polygons)
+    for start_h, start_w in divide_image(image,(crop_height, crop_width),(crop_height, crop_width)):
+        crop_image, crop_anno = crop(image, polygons, position=(int(start_h), int(start_w)))
         result, encoded_image = cv2.imencode(image_path.suffix,crop_image)
-        new_image_name = image_path.with_name(f'{image_path.stem}_{totalc}{image_path.suffix}').name
+        new_image_name = image_path.with_name(f'{image_path.stem}_{start_h}_{start_w}{image_path.suffix}').name
+        # new_image_name = image_path.with_name(f'{image_path.stem}_{totalc}{image_path.suffix}').name
 
         if result:
             with open(image_dir/'../images_aug'/new_image_name, 'w+b') as f:
