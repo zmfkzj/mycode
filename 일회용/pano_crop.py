@@ -280,7 +280,7 @@ def crop(image, polygons, position='uniform'):
         t,l= position
         b,r = t+crop_height, l+crop_width
         top_crop = t
-        right_crop = image.shape[1]-r-1 if (image.shape[1]-r)>=0 else 0
+        right_crop = image.shape[1]-r if (image.shape[1]-r)>=0 else 0
         bottom_crop = image.shape[0]-b if (image.shape[0]-b)>=0 else 0
         left_crop = l
         px = (top_crop,right_crop,bottom_crop,left_crop)
