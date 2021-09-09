@@ -1,27 +1,46 @@
-from os.path import *
-import sys
-sys.path.append(dirname(dirname(dirname(__file__))))
-
-import pandas as pd
-import numpy as np
-import os.path as osp
-import os
+from pycocotools.coco import COCO
 import cv2
+import numpy as np
+from pathlib import Path
+from typing import List
+import os
 from collections import defaultdict
 
+root = Path('d:/pano16_coco')
+coco = COCO(str(root/'annotations/instances_default.json'))
+image_dir = root/'images'
 
-root = osp.expanduser('~/nasrw/mk/dataset/도형/도형/')
-path = osp.join(root,'gtpart_default.csv')
+def crop_bbox(img:np.ndarray, bbox:List[float]):
+    x1,y1,w,h = [int(x) for x in bbox]
+    crop_img = img[y1:y1+h,x1:x1+w,:]
+    return crop_img
 
-crop_root = osp.join(root,'..', 'crop')
-os.makedirs(crop_root, exist_ok=True)
+save_img_counts = defaultdict(int)
 
-gt = pd.read_csv(path, encoding='euc-kr').rename(columns={'class':'classes'})
+for imgId, img_dict in coco.imgs.items():
+    img_filename = img_dict['file_name']
+    img = np.fromfile(image_dir/img_filename,dtype=np.uint8)
+    img = cv2.imdecode(img,cv2.IMREAD_COLOR)
 
-class_count = defaultdict(int)
-for obj in gt.itertuples():
-    img = cv2.imread(osp.join(root,obj.img))
-    crop_img = img[int(obj.gt_top):int(obj.gt_bottom), int(obj.gt_left):int(obj.gt_right)]
-    cv2.imwrite(osp.join(crop_root, '{}_{}.jpg'.format(obj.classes, class_count[obj.classes])), crop_img)
-    class_count[obj.classes] += 1
+    annoIds = coco.getAnnIds(imgIds=imgId)
+    annos = coco.loadAnns(annoIds)
+    for anno in annos:
+        if anno['segmentation']:
+            bbox = anno['bbox']
+        else:
+            continue
+
+        catId = anno['category_id']
+        cat_name = coco.cats[catId]['name']
+        crop_img = crop_bbox(img, bbox)
+
+        result, crop_img = cv2.imencode('.jpg',crop_img)
+        if result:
+            save_dir = root/f'crop_image/{cat_name}'
+            if not os.path.isdir(str(save_dir)):
+                os.makedirs(str(save_dir),exist_ok=True)
+            save_name =save_dir/f'{save_img_counts[cat_name]}.jpg'
+            save_img_counts[cat_name] +=1
+            with open(save_name, 'w+b') as f:
+                crop_img.tofile(f)
 
