@@ -25,6 +25,7 @@ coco_dataset = Path.home()/'pano16_coco'
 
 crop_width, crop_height = 1000,600
 count_per_img = 200
+random_crop=False
 ##############################################################################
 image_dir = coco_dataset/'images'
 
@@ -333,6 +334,21 @@ def divide_image(pano_image:np.ndarray,divide_size:tuple, stride_size:tuple):
         for start_w in np.arange(pano_w,step=stride_size[1]):
             yield (start_h,start_w)
 
+def image_save(crop_image, crop_anno):
+    global isc
+    if result:
+        with open(image_dir/'../images_aug'/new_image_name, 'w+b') as f:
+            encoded_image.tofile(f)
+    
+    image_id = add_image(new_image_name,crop_width, crop_height)
+    if not crop_anno.empty:
+        isc+=1
+        for polygon in crop_anno.polygons:
+            if polygon.coords.shape[0] != 0:
+                # add_anno(polygon,image_id)
+                for clip_polygon in polygon.clip_out_of_image(crop_image):
+                    add_anno(clip_polygon,image_id)
+
 for image_id in coco.getImgIds():
     coco_image = coco.loadImgs(image_id)[0]
 
@@ -346,29 +362,22 @@ for image_id in coco.getImgIds():
 
 
     os.makedirs(image_dir/'../images_aug',exist_ok=True)
-    isc=0
-    totalc=0
-    # while (isc<100) and (totalc<count_per_img):
-    #     crop_image, crop_anno = crop(image, polygons)
-    for start_h, start_w in divide_image(image,(crop_height, crop_width),(crop_height, crop_width)):
-        crop_image, crop_anno = crop(image, polygons, position=(int(start_h), int(start_w)))
-        result, encoded_image = cv2.imencode(image_path.suffix,crop_image)
-        new_image_name = image_path.with_name(f'{image_path.stem}_{start_h}_{start_w}{image_path.suffix}').name
-        # new_image_name = image_path.with_name(f'{image_path.stem}_{totalc}{image_path.suffix}').name
+    if random_crop:
+        isc=0
+        totalc=0
+        while (isc<100) and (totalc<count_per_img):
+            crop_image, crop_anno = crop(image, polygons)
+            result, encoded_image = cv2.imencode(image_path.suffix,crop_image)
+            new_image_name = image_path.with_name(f'{image_path.stem}_{totalc}{image_path.suffix}').name
+            image_save(crop_image, crop_anno)
+            totalc+=1
+    else:
+        for start_h, start_w in divide_image(image,(crop_height, crop_width),(crop_height, crop_width)):
+            crop_image, crop_anno = crop(image, polygons, position=(int(start_h), int(start_w)))
+            result, encoded_image = cv2.imencode(image_path.suffix,crop_image)
+            new_image_name = image_path.with_name(f'{image_path.stem}_{start_h}_{start_w}{image_path.suffix}').name
+            image_save(crop_image, crop_anno)
 
-        if result:
-            with open(image_dir/'../images_aug'/new_image_name, 'w+b') as f:
-                encoded_image.tofile(f)
-        
-        image_id = add_image(new_image_name,crop_width, crop_height)
-        if not crop_anno.empty:
-            isc+=1
-            for polygon in crop_anno.polygons:
-                if polygon.coords.shape[0] != 0:
-                    # add_anno(polygon,image_id)
-                    for clip_polygon in polygon.clip_out_of_image(crop_image):
-                        add_anno(clip_polygon,image_id)
-        totalc+=1
 
 os.makedirs(coco_dataset/'annotations_aug',exist_ok=True)
 with open(coco_dataset/'annotations_aug/instances_default.json','w') as f:
