@@ -15,17 +15,21 @@ from shapely.geometry.polygon import Polygon as shapely_Polygon
 from shapely.geometry.multipolygon import MultiPolygon as shapely_MultiPolygon
 import matplotlib.pyplot as plt
 import sys
+'''
+파노라마 이미지를 특정 크기로 random crop or 순차 crop 하기
+'''
+
 
 limit_number = 100000
 sys.setrecursionlimit(limit_number)
 
 ##############################################################################
-coco_dataset = Path.home()/'pano16_coco'
-# coco_dataset = Path('d:/pano16_coco')
+# coco_dataset = Path.home()/'pano16_coco'
+coco_dataset = Path('d:/pano16_coco')
 
 crop_width, crop_height = 1000,600
 count_per_img = 200
-random_crop=False
+random_crop=True
 ##############################################################################
 image_dir = coco_dataset/'images'
 

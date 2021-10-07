@@ -1,7 +1,5 @@
-from math import exp
 from os import PathLike
 from typing import Dict, List
-import imgaug
 import pandas as pd
 import numpy as np
 import json
@@ -9,35 +7,45 @@ import chardet
 from copy import deepcopy
 from pathlib import Path
 import cv2
-
+from dtsummary.object import Bbox
+from pyproj import Proj, Transformer
+from exif import Image
 
 class EnsembleData:
-    def __init__(self, path2D:PathLike, path3D:PathLike, cats:Dict[int,str]) -> None:
+    def __init__(self, path2D:PathLike, path3D:PathLike, cats:Dict[int,str], imagePath) -> None:
         self.path2D = path2D
         self.path3D = path3D
         self.cats = cats
-        self.load2D()
+        self.load2D(imagePath)
         self.load3D()
     
-    def load2D(self):
+    def load2D(self,imagePath):
         with open(self.path2D, 'r+b') as f:
             bytefile = f.read()
         encoding = chardet.detect(bytefile)['encoding']
         with open(self.path2D, 'r', encoding=encoding) as f:
             self.raw2D = json.load(f)
-        self.process2D()
+        self.process2D(imagePath)
 
-    def process2D(self):
+    def process2D(self, imagePath):
+        with open(imagePath,'r+b') as f:
+            img = Image(f)
+        latitude = np.sum(np.array(img.gps_latitude) / np.array((1,60,3600)))
+        longitude = np.sum(np.array(img.gps_longitude) / np.array((1,60,3600)))
+        transformer = Transformer.from_crs('epsg:4737','epsg:5186',)
+        x,y = transformer.transform(longitude, latitude)
         data = deepcopy(self.raw2D)
         whole_objects = []
         for img in data:
             filename = img['filename']
             objects = img['objects']
             for obj in objects:
+                bbox = Bbox(real_size,**obj)
                 obj['filename'] = filename
-                obj['x1'], obj['y1'], obj['x2'], obj['y2'] = obj['voc_bbox']
+                obj['x1'], obj['y1'], obj['x2'], obj['y2'] = bbox.voc
                 whole_objects.append(obj)
-        self.data2D = pd.DataFrame([pd.Series(obj) for obj in whole_objects]).drop(columns='voc_bbox').rename(columns={'confidence':'conf','name':'cat'})
+        self.data2D = pd.DataFrame([pd.Series(obj) for obj in whole_objects]).rename(columns={'confidence':'conf','name':'cat'})
+        self.data2D = self.data2D.reindex(columns='filename x1 y1 x2 y2 conf cat'.split())
     
     def load3D(self):
         with open(self.path3D, 'r+b') as f:
@@ -46,12 +54,12 @@ class EnsembleData:
         self.data3D:pd.DataFrame = pd.read_csv(self.path3D, ' ',encoding=encoding, header=None).rename(columns=dict(zip(range(10),'x y z R G B cat conf3D_Crater conf3D_background conf3D_UBX'.split())))
 
         #max conf 값을 cat에 따라 할당
-        self.data3D['cat'].replace(dict(zip(range(3),'conf3D_Crater conf3D_background conf3D_UBX'.split())),inplace=True)
-        max_confs = self.data3D['conf3D_Crater conf3D_background conf3D_UBX'.split()].max(axis=1)
-        max_confs = np.expand_dims(max_confs.to_numpy(),1)
-        correct_confs = pd.get_dummies(self.data3D['cat'])*max_confs
-        self.data3D.drop(columns='conf3D_Crater conf3D_background conf3D_UBX'.split(), inplace=True)
-        self.data3D = pd.concat([self.data3D,correct_confs],axis=1)
+        # self.data3D['cat'].replace(dict(zip(range(3),'conf3D_Crater conf3D_background conf3D_UBX'.split())),inplace=True)
+        # max_confs = self.data3D['conf3D_Crater conf3D_background conf3D_UBX'.split()].max(axis=1)
+        # max_confs = np.expand_dims(max_confs.to_numpy(),1)
+        # correct_confs = pd.get_dummies(self.data3D['cat'])*max_confs
+        # self.data3D.drop(columns='conf3D_Crater conf3D_background conf3D_UBX'.split(), inplace=True)
+        # self.data3D = pd.concat([self.data3D,correct_confs],axis=1)
 
         self.data3D['filename'] = Path(self.path3D).name
         

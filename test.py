@@ -1,7 +1,10 @@
-import json
+from exif import Image
 from pathlib import Path
+import chardet
+import numpy as np
 
-with open(str(Path('/Users/minkyu/Desktop/무제 폴더/lv1/result_test.json')),'r') as f:
-    a = json.load(f)
-b = json.dumps(a,ensure_ascii=False, indent=4)
-print(a)
+with open(Path.home()/'Downloads/task_210906_남서울_촬영_test-2021_09_27_13_26_35-coco 1.0/images/101_0382_0001.JPG','r+b') as f:
+    img = Image(f)
+latitude = np.sum(np.array(img.gps_latitude) / np.array((1,60,3600)))
+longitude = np.sum(np.array(img.gps_longitude) / np.array((1,60,3600)))
+print(latitude, longitude)
