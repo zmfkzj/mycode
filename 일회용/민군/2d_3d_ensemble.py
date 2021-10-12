@@ -1,5 +1,6 @@
 from os import PathLike
 from typing import Dict, List
+from numpy.core.defchararray import array
 import pandas as pd
 import numpy as np
 import json
@@ -8,43 +9,56 @@ from copy import deepcopy
 from pathlib import Path
 import cv2
 from dtsummary.object import Bbox
-from pyproj import Proj, Transformer
+from pyproj import Proj, Transformer, transform
 from exif import Image
 
 class EnsembleData:
-    def __init__(self, path2D:PathLike, path3D:PathLike, cats:Dict[int,str], imagePath) -> None:
+    def __init__(self, path2D:PathLike, path3D:PathLike, cats:Dict[int,str], camera_spec) -> None:
         self.path2D = path2D
         self.path3D = path3D
         self.cats = cats
-        self.load2D(imagePath)
+        self.real_size = self.cal_FOV(**camera_spec)
+        self.load2D()
         self.load3D()
     
-    def load2D(self,imagePath):
+    def get_tm(self, image_path):
+        with open(image_path,'r+b') as f:
+            img = Image(f)
+        latitude = np.sum(np.array(img.gps_latitude) / np.array((1,60,3600)))
+        longitude = np.sum(np.array(img.gps_longitude) / np.array((1,60,3600)))
+        transformer = Transformer.from_crs('epsg:4737','epsg:5186')
+        y,x = transformer.transform(latitude, longitude)
+        return x,y
+    
+    def cal_FOV(self, sensor_size, focal_length, distance):
+        '''
+        sensor_size = width, height
+        '''
+        times = focal_length/distance
+        w,h = np.array(sensor_size) / times / 1000
+        return w,h
+
+    def load2D(self):
         with open(self.path2D, 'r+b') as f:
             bytefile = f.read()
         encoding = chardet.detect(bytefile)['encoding']
         with open(self.path2D, 'r', encoding=encoding) as f:
             self.raw2D = json.load(f)
-        self.process2D(imagePath)
-
-    def process2D(self, imagePath):
-        with open(imagePath,'r+b') as f:
-            img = Image(f)
-        latitude = np.sum(np.array(img.gps_latitude) / np.array((1,60,3600)))
-        longitude = np.sum(np.array(img.gps_longitude) / np.array((1,60,3600)))
-        transformer = Transformer.from_crs('epsg:4737','epsg:5186',)
-        x,y = transformer.transform(longitude, latitude)
+        self.process2D()
+    
+    def process2D(self):
         data = deepcopy(self.raw2D)
         whole_objects = []
         for img in data:
             filename = img['filename']
             objects = img['objects']
+            self.tm_coord = self.get_tm(Path(self.path2D).parent/'images'/filename)
             for obj in objects:
-                bbox = Bbox(real_size,**obj)
+                bbox = Bbox(self.real_size,**obj)
                 obj['filename'] = filename
-                obj['x1'], obj['y1'], obj['x2'], obj['y2'] = bbox.voc
+                obj['x1'], obj['y1'], obj['x2'], obj['y2'] = np.array(bbox.voc) + np.tile(np.array(self.tm_coord)-0.5*np.array(self.real_size),2)
                 whole_objects.append(obj)
-        self.data2D = pd.DataFrame([pd.Series(obj) for obj in whole_objects]).rename(columns={'confidence':'conf','name':'cat'})
+        self.data2D = pd.DataFrame([pd.Series(obj) for obj in whole_objects]).rename(columns={'confidence':'conf','label':'cat'})
         self.data2D = self.data2D.reindex(columns='filename x1 y1 x2 y2 conf cat'.split())
     
     def load3D(self):
@@ -124,12 +138,16 @@ class Ensembler:
                     encoded_image.tofile(f)
         print(f'{kind} image 저장 완료')
 
+camera_spec = {'sensor_size':(13.2,8.8), 'focal_length':8.8, 'distance':50000}
 cats = {0:'Crater', 1:'background',2:'UBX'}
-data = EnsembleData('D:/ensemble/custom_dt_result_example.json','D:/ensemble/4-0_0.86_36 sample.txt',cats)
+data = EnsembleData('D:/ensemble/ensemble/costum_result.json',
+                    'D:/ensemble/ensemble/Namseoul University_20210908_Whole_Split_8_20210930 prediction_confidence_Edit.txt',
+                    cats,
+                    camera_spec)
 ensembler = Ensembler(data, 0.5)
 # ensembler.export_binary('D:/ensemble/binary.csv')
 # ensembler.export_mean('D:/ensemble/mean.csv')
-# ensembler.export_image('D:/ensemble', (1080,1620), kind='conf2D')
-# ensembler.export_image('D:/ensemble', (1080,1620), kind='conf3D')
-# ensembler.export_image('D:/ensemble', (1080,1620), kind='mean')
+ensembler.export_image('D:/ensemble', (1080,1620), kind='conf2D')
+ensembler.export_image('D:/ensemble', (1080,1620), kind='conf3D')
+ensembler.export_image('D:/ensemble', (1080,1620), kind='mean')
 ensembler.export_image('D:/ensemble', (1080,1620), kind='binary')
