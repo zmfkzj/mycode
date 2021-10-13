@@ -22,6 +22,19 @@ def get_tm_coord(latitude,longitude):
     transformer = Transformer.from_crs('epsg:4737','epsg:5186')
     return transformer.transform(*single_number_gps_info)
 
+def cal_FOV(self, sensor_size, focal_length, distance):
+    '''
+    sensor_size = width, height
+    '''
+    times = focal_length/distance
+    w,h = np.array(sensor_size) / times / 1000
+    return w,h
+
+def get_field(w,h):
+    np.arange(w*h*2).reshape([h,w,2])
+
+def cvt_
+
 dir_path = Path()
 db_gps_info = pd.DataFrame(columns='section sample slab gps_lt gps_rb'.split())
 db_gps_info['gps_center'] = (db_gps_info['gps_lt'].astype(np.array)+ db_gps_info['gps_rb'].astype(np.array)).mean(axis=1)
