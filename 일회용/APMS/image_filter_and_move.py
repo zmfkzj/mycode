@@ -23,7 +23,7 @@ def get_tm_coord(latitude,longitude):
     transformer = Transformer.from_crs('epsg:4737','epsg:5186')
     return transformer.transform(*single_number_gps_info)
 
-def cal_FOV(self, sensor_size, focal_length, distance):
+def cal_FOV(sensor_size, focal_length, distance):
     '''
     sensor_size = width, height
     '''
@@ -56,30 +56,28 @@ def cvt_polar2cartesian(polar_field):
     y = np.sin(angle)*distance
     return np.concatenate([np.expand_dims(y,2),np.expand_dims(x,2)],axis=2)
 
-# dir_path = Path()
-# db_gps_info = pd.DataFrame(columns='section sample slab gps_lt gps_rb'.split())
-# db_gps_info['gps_center'] = (db_gps_info['gps_lt'].astype(np.array)+ db_gps_info['gps_rb'].astype(np.array)).mean(axis=1)
-# db_gps_info['gps_center'] = db_gps_info['gps_center'].map(lambda x,y: get_tm_coord(x,y))
+dir_path = Path()
+db_gps_info = pd.DataFrame(columns='section sample slab gps_lt gps_rb'.split())
 
-# images = []
-# for root,dirs,files in os.walk(dir_path):
-#     for f in files:
-#         if Path(f).suffix.lower() in ['.jpg','.png']:
-#             images.append(Path(root)/f)
+images = []
+for root,dirs,files in os.walk(dir_path):
+    for f in files:
+        if Path(f).suffix.lower() in ['.jpg','.png']:
+            images.append(Path(root)/f)
 
-# for img in images:
-#     img_tm = get_image_gps_info(img)
-#     db_gps_info['new_image'] = db_gps_info['gps_center'].map(lambda db_tm: img if get_distance(db_tm,img_tm)<1 else np.nan)
-
-# for slab in db_gps_info.itertuples:
-#     if slab.new_image is not None:
-#         new_path = Path(slab.section)/slab.sample/slab.new_image.name
-#         copy(str(slab.new_image),str(new_path))
-    
-if __name__=="__main__":
+for img in images:
+    img_tm = get_image_gps_info(img)
+    real_size = cal_FOV()
     polar_field = get_polar_field((1080,1620),(60,160))
     rotated_polar_field = rotate(polar_field,79.83)
     cartesian_field = cvt_polar2cartesian(rotated_polar_field)
-    lt = cartesian_field[0,0,:]
+    lt = cartesian_field[0,0,:]) 
     rb = cartesian_field[-1,-1,:]
-    pass
+    db_gps_info['new_image'] = db_gps_info['gps_center'].map(lambda db_tm: img if get_distance(db_tm,img_tm)<1 else np.nan)
+
+for slab in db_gps_info.itertuples:
+    if slab.new_image is not None:
+        new_path = Path(slab.section)/slab.sample/slab.new_image.name
+        copy(str(slab.new_image),str(new_path))
+    
+if __name__=="__main__":
