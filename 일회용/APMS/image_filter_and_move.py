@@ -13,7 +13,7 @@ def parser():
     parser.add_argument("--input_dir", type=str, default="d:/upload_images/")
     parser.add_argument("--output_dir", type=str, default="d:/moved_images")
     parser.add_argument("--sensor_size", type=tuple, default=(8.8,13.2),help='h,w')
-    parser.add_argument("--focal_length", type=float, default=8.8)
+    parser.add_argument("--focal_length", type=float, default=24)
     parser.add_argument("--distance", type=float, default=50000)
     parser.add_argument("--north_angle", type=float, default=78.17,help='이미지 12시 기준으로 실제 북쪽이 몇도에 있는지')
     return parser.parse_args()
@@ -73,12 +73,15 @@ def cvt_polar2cartesian(polar_field):
     return np.concatenate([np.expand_dims(y,2),np.expand_dims(x,2)],axis=2)
 
 def isin_image(img_ltrb, db_ltrb):
-    img_lt, img_rb = img_ltrb
+    img_min = np.min(np.array(img_ltrb),axis=0)
+    img_max = np.max(np.array(img_ltrb),axis=0)
     db_lt, db_rb = db_ltrb
     db_lt = get_tm_coord(*db_lt)
     db_rb = get_tm_coord(*db_rb)
+    db_min = np.min(np.array((db_lt, db_rb)),axis=0)
+    db_max = np.max(np.array((db_lt, db_rb)),axis=0)
 
-    if np.all(img_lt<=db_lt) and np.all(img_rb>=db_rb):
+    if np.all(img_min<=db_min) and np.all(img_max>=db_max):
         return True
     else:
         return False
@@ -105,16 +108,16 @@ for img in images:
     real_size = cal_FOV(arg.sensor_size, arg.focal_length,arg.distance)
 
     with open(img,'r+b') as f:
-        img = Image(f)
+        img_meta = Image(f)
     
-    polar_field = get_polar_field((img.pixel_y_dimension,img.pixel_x_dimension),real_size)
+    polar_field = get_polar_field((img_meta.pixel_y_dimension,img_meta.pixel_x_dimension),real_size)
     rotated_polar_field = rotate(polar_field,arg.north_angle)
     cartesian_field = cvt_polar2cartesian(rotated_polar_field)
     lt = cartesian_field[0,0,:]*real_size+img_tm
     rb = cartesian_field[-1,-1,:]*real_size+img_tm
 
-    for slab in db_gps_info['lt_lat lt_lon rb_lat rb_lon'.split()].itertuples():
+    for slab in db_gps_info.itertuples():
         if isin_image((lt,rb),((slab.lt_lat,slab.lt_lon),(slab.rb_lat,slab.rb_lon))):
-            new_path = Path(arg.output_dir)/Path(img).name
+            new_path = Path(arg.output_dir)/f'{slab.slab_id}{Path(img).suffix}'
             os.makedirs(str(new_path.parent),exist_ok=True)
             copy(str(img),str(new_path))
