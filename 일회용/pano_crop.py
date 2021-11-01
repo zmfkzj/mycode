@@ -27,9 +27,10 @@ sys.setrecursionlimit(limit_number)
 # coco_dataset = Path.home()/'pano16_coco'
 coco_dataset = Path('d:/pano16_coco')
 
-crop_width, crop_height = 1000,600
+crop_width, crop_height = 1024,1024
+stride_gap = 0
 count_per_img = 200
-random_crop=True
+random_crop=False
 ##############################################################################
 image_dir = coco_dataset/'images'
 
@@ -296,7 +297,8 @@ def crop(image, polygons, position='uniform'):
 
     seq = iaa.Sequential([
         *crop_augmenter,
-        iaa.RemoveCBAsByOutOfImageFraction(.99)
+        iaa.RemoveCBAsByOutOfImageFraction(.90),
+        iaa.ClipCBAsToImagePlanes(),
     ])
 
     image_aug, polys_aug = seq(image=image, polygons=polys)
@@ -366,8 +368,8 @@ for image_id in coco.getImgIds():
 
 
     os.makedirs(image_dir/'../images_aug',exist_ok=True)
+    isc=0
     if random_crop:
-        isc=0
         totalc=0
         while (isc<100) and (totalc<count_per_img):
             crop_image, crop_anno = crop(image, polygons)
@@ -376,8 +378,11 @@ for image_id in coco.getImgIds():
             image_save(crop_image, crop_anno)
             totalc+=1
     else:
-        for start_h, start_w in divide_image(image,(crop_height, crop_width),(crop_height, crop_width)):
+        for start_h, start_w in divide_image(image,(crop_height-stride_gap, crop_width-stride_gap),(crop_height, crop_width)):
             crop_image, crop_anno = crop(image, polygons, position=(int(start_h), int(start_w)))
+            if crop_image.shape[:2] !=(crop_height,crop_width):
+                h,w = crop_image.shape[:2]
+                crop_image = np.pad(crop_image,((0,crop_height-h),(0,crop_width-w),(0,0)))
             result, encoded_image = cv2.imencode(image_path.suffix,crop_image)
             new_image_name = image_path.with_name(f'{image_path.stem}_{start_h}_{start_w}{image_path.suffix}').name
             image_save(crop_image, crop_anno)

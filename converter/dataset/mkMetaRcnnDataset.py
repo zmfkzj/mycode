@@ -41,9 +41,9 @@ def train_valid_test_split(gtpart, root):
     list2txt(test_img, join(root, f'ImageSets/Main/test.txt'))
 
 if __name__ == "__main__":
-    root = expanduser('c:/Users/mkkim/Desktop/fod/')
+    root = expanduser('c:/Users/mkkim/Downloads/task_보현산댐 파노라마 벤치마크 210907_randomcrop_3,4,5 제외-2021_09_28_13_31_18-pascal voc 1.1/')
     dataset = ['train', 'val', 'trainval', 'test']
-    novel_class = [ 'Tag', 'AdjustableClamp', 'Nut', 'BoltNutSet', 'AdjustableWrench', 'MetalSheet', 'Hose' ]
+    novel_class = [ 'Fail', 'Crack']
 
 
     filelist = join(root, 'ImageSets/Main/default.txt')

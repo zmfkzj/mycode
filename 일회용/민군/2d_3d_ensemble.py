@@ -1,6 +1,5 @@
 from os import PathLike
 from typing import Dict, List
-from numpy.core.defchararray import array
 import pandas as pd
 import numpy as np
 import json
@@ -9,7 +8,7 @@ from copy import deepcopy
 from pathlib import Path
 import cv2
 from dtsummary.object import Bbox
-from pyproj import Proj, Transformer, transform
+from pyproj import Transformer
 from exif import Image
 
 class EnsembleData:
@@ -21,15 +20,55 @@ class EnsembleData:
         self.load2D()
         self.load3D()
     
-    def get_tm(self, image_path):
+    @staticmethod
+    def get_distance(tm1,tm2):
+        return np.sqrt(np.sum(np.square(np.array(tm1)-np.array(tm2))))
+
+    def get_image_gps_info(self, image_path:Path):
         with open(image_path,'r+b') as f:
             img = Image(f)
-        latitude = np.sum(np.array(img.gps_latitude) / np.array((1,60,3600)))
-        longitude = np.sum(np.array(img.gps_longitude) / np.array((1,60,3600)))
+        return self.get_tm_coord(img.gps_latitude,img.gps_longitude)
+
+    def get_tm_coord(self, latitude,longitude):
+        gps_info = np.array((latitude,longitude))
+        single_number_gps_info = np.sum(gps_info / np.array((1,60,3600)),axis=1)
+
         transformer = Transformer.from_crs('epsg:4737','epsg:5186')
-        y,x = transformer.transform(latitude, longitude)
-        return x,y
-    
+        return transformer.transform(*single_number_gps_info)
+
+    def cal_FOV(self, sensor_size, focal_length, distance):
+        '''
+        sensor_size = width, height
+        '''
+        times = focal_length/distance
+        w,h = np.array(sensor_size) / times / 1000
+        return w,h
+
+    def get_polar_field(self, image_size, real_size):
+        img_h, img_w = image_size
+        img_x = np.expand_dims(np.repeat(np.expand_dims(np.arange(img_w),axis=1),img_h,axis=1),axis=2)
+        img_y = np.expand_dims(np.repeat(np.expand_dims(np.arange(img_h),axis=1),img_w,axis=1).T,axis=2)
+        img_field = np.concatenate([img_y,img_x], axis=2)
+        img_field = img_field/np .array([img_h,img_w])-0.5
+        distance = np.sqrt(np.sum(np.square(img_field),axis=2))*self.get_distance(*real_size)
+        angle = np.arctan(img_field[...,0]/img_field[...,1]) 
+        angle = np.where(np.isnan(angle),0,angle)
+        angle = np.where(img_field[...,1]<0,angle+np.pi,angle)
+        polar_field = np.concatenate([np.expand_dims(distance,2),np.expand_dims(angle,2)],axis=2)
+        return polar_field
+
+    def rotate(self, polar_field, north_angle):
+        radian_angle = north_angle/180*np.pi
+        polar_field[...,1] = polar_field[...,1]+radian_angle
+        return polar_field
+
+    def cvt_polar2cartesian(self, polar_field):
+        distance = polar_field[...,0]
+        angle = polar_field[...,1]
+        x = np.cos(angle)*distance
+        y = np.sin(angle)*distance
+        return np.concatenate([np.expand_dims(y,2),np.expand_dims(x,2)],axis=2)
+        
     def cal_FOV(self, sensor_size, focal_length, distance):
         '''
         sensor_size = width, height

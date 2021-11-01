@@ -33,12 +33,6 @@ def get_tm_coord(latitude,longitude):
     transformer = Transformer.from_crs('epsg:4737','epsg:5186')
     return transformer.transform(*single_number_gps_info)
 
-def get_gps_coord(latitude,longitude):
-    single_number_gps_info = np.array((latitude,longitude))
-
-    transformer = Transformer.from_crs('epsg:5186','epsg:4737')
-    return transformer.transform(*single_number_gps_info)
-
 def cal_FOV(sensor_size, focal_length, distance):
     '''
     sensor_size = width, height
