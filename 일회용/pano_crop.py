@@ -29,8 +29,8 @@ coco_dataset = Path('d:/pano16_coco')
 
 crop_width, crop_height = 1024,1024
 stride_gap = 0
-count_per_img = 200
-random_crop=False
+count_per_img = 400
+random_crop=True
 ##############################################################################
 image_dir = coco_dataset/'images'
 
