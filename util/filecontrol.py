@@ -5,10 +5,13 @@ from toolz import curry, reduce
 import cv2
 import numpy as np
 from typing import *
+import chardet
 
 def txt2list(txtpath):
     #텍스트 파일의 내용을 리스트로 만들기
-    with open(txtpath, 'r', encoding='utf-8') as f:
+    with open(txtpath, 'r+b') as f:
+        encoding = chardet.detect(f.read())['encoding']
+    with open(txtpath, 'r', encoding=encoding) as f:
         filelist = f.readlines()
     filelist = [path.rstrip('\n') for path in filelist]
     filelist = [path for path in filelist if path]
