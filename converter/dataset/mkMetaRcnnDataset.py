@@ -41,9 +41,9 @@ def train_valid_test_split(gtpart, root):
     list2txt(test_img, join(root, f'ImageSets/Main/test.txt'))
 
 if __name__ == "__main__":
-    root = expanduser('c:/Users/mkkim/Desktop/export/merged_dataset_voc/')
+    root = expanduser('c:/Users/mkkim/Desktop/export/SQ_NEU_Dam/')
     dataset = ['train', 'val', 'test', 'trainval']
-    novel_class = [ 'Fail', 'Crack']
+    novel_class = [ 'desqu', 'MS', 'RE', 'Crack', 'Fail']
 
 
     filelist = join(root, 'ImageSets/Main/default.txt')
