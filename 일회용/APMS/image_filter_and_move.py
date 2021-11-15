@@ -71,7 +71,7 @@ for img in images:
 
     for slab in db_gps_info.itertuples():
         if get_distance(img_tm,(slab.ct_lat, slab.ct_lon))<arg.distance:
-            new_path = Path(arg.output_dir)/f'{int(slab.slab_id)}{Path(img).suffix}'
+            new_path = Path(arg.output_dir)/f'{int(slab.slab_id)}{Path(img).suffix.lower()}'
             if arg.test:
                 transformer = Transformer.from_crs('epsg:5186','epsg:4737')
                 img_gps = transformer.transform(*img_tm)
