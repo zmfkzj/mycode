@@ -4,7 +4,7 @@ voc to coco 후 annotations id가 1234,123식으로 엉클어진 것을 새로 �
 import json
 import chardet
 
-coco_json_path = 'd:/pano_crop/SQ_NEU_Dam_coco/annotations/instances_test.json'
+coco_json_path = 'd:/pano_crop/SQ_NEU_Dam_coco/annotations/instances_default.json'
 
 with open(coco_json_path, 'r+b') as f:
     encoding = chardet.detect(f.read())['encoding']

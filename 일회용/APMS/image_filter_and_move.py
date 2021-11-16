@@ -1,4 +1,4 @@
-from exif import Image
+from exif import Image as eImage
 # import foilum as fl
 import pathlib as fl
 from pathlib import Path
@@ -9,6 +9,8 @@ import os
 from shutil import copy
 import psycopg2 as ps
 import argparse
+import cv2
+from PIL import Image as PImage
 
 def parser():
     parser = argparse.ArgumentParser()
@@ -19,11 +21,12 @@ def parser():
     return parser.parse_args()
 
 def get_distance(tm1,tm2):
-    return np.sqrt(np.sum(np.square(np.array(tm1)-np.array(tm2))))
+    diff = np.array(tm1)-np.array(tm2)
+    return np.sqrt(np.sum(np.square(diff))), *diff
 
 def get_image_gps_info(image_path:Path):
     with open(image_path,'r+b') as f:
-        img = Image(f)
+        img = eImage(f)
     return get_tm_coord(img.gps_latitude,img.gps_longitude)
 
 def get_tm_coord(latitude,longitude):
@@ -40,15 +43,16 @@ def cal_gps_num(degree):
 
 arg = parser()
 
-db = []
-with ps.connect(host='localhost', dbname='aroad', user='postgres', password='namchanho1!@',port=5432) as conn:  # db에 접속
-    with conn.cursor() as cur:
-        cur.execute("SELECT * FROM gps_test")
-        for data in cur:
-            db.append(pd.Series(data))
+# db = []
+# with ps.connect(host='localhost', dbname='aroad', user='postgres', password='namchanho1!@',port=5432) as conn:  # db에 접속
+#     with conn.cursor() as cur:
+#         cur.execute("SELECT * FROM gps_test")
+#         for data in cur:
+#             db.append(pd.Series(data))
 
-db_gps_info = pd.DataFrame(db).rename(columns={0:'ct_lat',1:'ct_lon',2:'slab_id'})
-db_gps_info = db_gps_info.apply(lambda x: pd.Series(get_tm_coord(*x[:2])+(x[2],),index=['ct_lat','ct_lon','slab_id']) ,axis=1)
+# db_gps_info = pd.DataFrame(db).rename(columns={0:'ct_lat',1:'ct_lon',2:'slab_id'})
+# db_gps_info = db_gps_info.apply(lambda x: pd.Series(get_tm_coord(*x[:2])+(x[2],),index=['ct_lat','ct_lon','slab_id']) ,axis=1)
+db_gps_info = pd.read_csv('d:/DB_gps_info.csv')
 
 
 images = []
@@ -60,8 +64,8 @@ for root,dirs,files in os.walk(arg.input_dir):
 if arg.test:
     map = fl.Map([36.90833,127.1408],zoom_start=15,max_zoom=22)
 
-for img in images:
-    img_tm = get_image_gps_info(img)
+for img_path in images:
+    img_tm = get_image_gps_info(img_path)
 
     if arg.test:
         transformer = Transformer.from_crs('epsg:5186','epsg:4737')
@@ -70,8 +74,11 @@ for img in images:
         fl.Marker(img_gps,icon=fl.Icon(color='red')).add_to(map)
 
     for slab in db_gps_info.itertuples():
-        if get_distance(img_tm,(slab.ct_lat, slab.ct_lon))<arg.distance:
-            new_path = Path(arg.output_dir)/f'{int(slab.slab_id)}{Path(img).suffix}'
+        d,d_lat,d_lon = get_distance(img_tm,(slab.ct_lat, slab.ct_lon))
+        dx = d_lat/2.01
+        dy = d_lon/2.01
+        if d<arg.distance:
+            new_path = Path(arg.output_dir)/f'{int(slab.slab_id)}{Path(img_path).suffix.lower()}'
             if arg.test:
                 transformer = Transformer.from_crs('epsg:5186','epsg:4737')
                 img_gps = transformer.transform(*img_tm)
@@ -79,7 +86,18 @@ for img in images:
                 fl.Marker(img_gps,icon=fl.Icon(color='green')).add_to(map)
             else:
                 os.makedirs(str(new_path.parent),exist_ok=True)
-                copy(str(img),str(new_path))
+                img = PImage.open(str(img_path))
+                img = np.array(img)
+                h,w = img.shape[:2]
+                num_rows,num_cols = img.shape[:2]
+                translation_matrix = np.float32([[1,0,dx],[0,1,dy]])
+                img_translation = cv2.warpAffine(img,translation_matrix,(num_cols,num_rows),cv2.INTER_LINEAR)
+                h_crop = (h-2743)//2 if h>2743 else 0
+                w_crop = (w-2743)//2 if w>2743 else 0
+                crop_img = img_translation[h_crop:-h_crop-1,w_crop:-w_crop-1,::-1]
+                cv2.imwrite(str(new_path),crop_img)
+
+                # copy(str(img_path),str(new_path))
 
 if arg.test:
     for slab in db_gps_info.itertuples():
