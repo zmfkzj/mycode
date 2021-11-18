@@ -1,5 +1,5 @@
 from os import PathLike
-from typing import Dict, List
+from typing import Dict, List, Tuple
 import pandas as pd
 import numpy as np
 import json
@@ -10,13 +10,16 @@ import cv2
 from dtsummary.object import Bbox
 from pyproj import Transformer
 from exif import Image
+import imgaug as ia
+import imgaug.augmenters as iaa
 
 class EnsembleData:
-    def __init__(self, path2D:PathLike, path3D:PathLike, cats:Dict[int,str], camera_spec) -> None:
+    def __init__(self, path2D:PathLike, path3D:PathLike, cats:Dict[int,str], camera_spec:dict,north_angle:float) -> None:
         self.path2D = path2D
         self.path3D = path3D
         self.cats = cats
         self.real_size = self.cal_FOV(**camera_spec)
+        self.north_angle = north_angle
         self.load2D()
         self.load3D()
     
@@ -38,44 +41,16 @@ class EnsembleData:
 
     def cal_FOV(self, sensor_size, focal_length, distance):
         '''
-        sensor_size = width, height
+        sensor_size = height, width
         '''
         times = focal_length/distance
-        w,h = np.array(sensor_size) / times / 1000
-        return w,h
-
-    def get_polar_field(self, image_size, real_size):
-        img_h, img_w = image_size
-        img_x = np.expand_dims(np.repeat(np.expand_dims(np.arange(img_w),axis=1),img_h,axis=1),axis=2)
-        img_y = np.expand_dims(np.repeat(np.expand_dims(np.arange(img_h),axis=1),img_w,axis=1).T,axis=2)
-        img_field = np.concatenate([img_y,img_x], axis=2)
-        img_field = img_field/np .array([img_h,img_w])-0.5
-        distance = np.sqrt(np.sum(np.square(img_field),axis=2))*self.get_distance(*real_size)
-        angle = np.arctan(img_field[...,0]/img_field[...,1]) 
-        angle = np.where(np.isnan(angle),0,angle)
-        angle = np.where(img_field[...,1]<0,angle+np.pi,angle)
-        polar_field = np.concatenate([np.expand_dims(distance,2),np.expand_dims(angle,2)],axis=2)
-        return polar_field
-
-    def rotate(self, polar_field, north_angle):
-        radian_angle = north_angle/180*np.pi
-        polar_field[...,1] = polar_field[...,1]+radian_angle
-        return polar_field
-
-    def cvt_polar2cartesian(self, polar_field):
-        distance = polar_field[...,0]
-        angle = polar_field[...,1]
-        x = np.cos(angle)*distance
-        y = np.sin(angle)*distance
-        return np.concatenate([np.expand_dims(y,2),np.expand_dims(x,2)],axis=2)
-        
-    def cal_FOV(self, sensor_size, focal_length, distance):
-        '''
-        sensor_size = width, height
-        '''
-        times = focal_length/distance
-        w,h = np.array(sensor_size) / times / 1000
-        return w,h
+        return np.array(sensor_size) / times / 1000
+    
+    def cal_GPSBbox(self, img_tm_coord:Tuple[float,float], bbox:Bbox, img_size, fov):
+        mpp = fov/img_size
+        coord_from_center = np.array(bbox.voc)-np.tile(img_size[::-1],2)/2
+        meter_from_center = coord_from_center * np.tile(mpp[::-1],2)
+        return meter_from_center + np.tile(img_tm_coord[::-1],2)
 
     def load2D(self):
         with open(self.path2D, 'r+b') as f:
@@ -91,14 +66,23 @@ class EnsembleData:
         for img in data:
             filename = img['filename']
             objects = img['objects']
-            self.tm_coord = self.get_tm(Path(self.path2D).parent/'images'/filename)
+            self.img_tm_coord = self.get_image_gps_info(Path(self.path2D).parent/'images'/filename)
+            img_size = (img['image_size']['height'],img['image_size']['width'])
+            bboxes = []
             for obj in objects:
-                bbox = Bbox(self.real_size,**obj)
-                obj['filename'] = filename
-                obj['x1'], obj['y1'], obj['x2'], obj['y2'] = np.array(bbox.voc) + np.tile(np.array(self.tm_coord)-0.5*np.array(self.real_size),2)
+                bbox = Bbox(img_size,**obj)
+                bbox = ia.BoundingBox(*bbox.voc,label=bbox.label)
+                bboxes.append(bbox)
+            bboxesOnImg = ia.BoundingBoxesOnImage(bboxes,img_size)
+            seq = iaa.Rotate(rotate=self.north_angle)
+            bbs_aug = seq(bounding_boxes=bboxesOnImg)
+            for obj,bbox in zip(objects,bbs_aug):
+                bbox:ia.BoundingBox
+                bbox = Bbox(img_size,voc_bbox=(bbox.x1,bbox.y1,bbox.x2,bbox.y2),label=bbox.label)
+                obj['x1'], obj['y1'], obj['x2'], obj['y2'] = self.cal_GPSBbox(self.img_tm_coord,bbox,img_size,self.real_size)
                 whole_objects.append(obj)
         self.data2D = pd.DataFrame([pd.Series(obj) for obj in whole_objects]).rename(columns={'confidence':'conf','label':'cat'})
-        self.data2D = self.data2D.reindex(columns='filename x1 y1 x2 y2 conf cat'.split())
+        self.data2D = self.data2D.reindex(columns='x1 y1 x2 y2 conf cat'.split())
     
     def load3D(self):
         with open(self.path3D, 'r+b') as f:
@@ -113,10 +97,6 @@ class EnsembleData:
         # correct_confs = pd.get_dummies(self.data3D['cat'])*max_confs
         # self.data3D.drop(columns='conf3D_Crater conf3D_background conf3D_UBX'.split(), inplace=True)
         # self.data3D = pd.concat([self.data3D,correct_confs],axis=1)
-
-        self.data3D['filename'] = Path(self.path3D).name
-        
-        
 class Ensembler:
     def __init__(self, data:EnsembleData, thresh=0.5) -> None:
         self.data2D:pd.DataFrame = data.data2D
@@ -143,7 +123,8 @@ class Ensembler:
 
     def apply_thresh(self, thresh):
         for catId, cat in self.cats.items():
-            self.mean_table[f'binary_{cat}'] = self.mean_table[f'mean_{cat}'].map(lambda x: 1 if x>=thresh else 0)
+            is_over:pd.Series = self.mean_table[f'mean_{cat}'] >= thresh
+            self.mean_table[f'binary_{cat}'] = is_over.astype(int)
     
     def export_mean(self, export_path:PathLike):
         export_data:pd.DataFrame = self.mean_table['x y z R G B cat mean_Crater conf3D_background mean_UBX'.split()]
@@ -177,12 +158,14 @@ class Ensembler:
                     encoded_image.tofile(f)
         print(f'{kind} image 저장 완료')
 
-camera_spec = {'sensor_size':(13.2,8.8), 'focal_length':8.8, 'distance':50000}
+camera_spec = {'sensor_size':(8.8,13.2), 'focal_length':8.8, 'distance':50000}#우리거
+# camera_spec = {'sensor_size':(14.131,10.35), 'focal_length':16, 'distance':50000}#공간정보
 cats = {0:'Crater', 1:'background',2:'UBX'}
-data = EnsembleData('D:/ensemble/ensemble/costum_result.json',
+data = EnsembleData('D:/ensemble/ensemble/costum_result_del.json',
                     'D:/ensemble/ensemble/Namseoul University_20210908_Whole_Split_8_20210930 prediction_confidence_Edit.txt',
                     cats,
-                    camera_spec)
+                    camera_spec,
+                    -5)
 ensembler = Ensembler(data, 0.5)
 # ensembler.export_binary('D:/ensemble/binary.csv')
 # ensembler.export_mean('D:/ensemble/mean.csv')
