@@ -22,15 +22,6 @@ def get_tm_coord(latitude,longitude):
     transformer = Transformer.from_crs('epsg:4737','epsg:5186')
     return transformer.transform(*single_number_gps_info)
 
-def load_images(dir_path:Path):
-    if isinstance(dir_path,str):
-        dir_path = Path(dir_path)
-    imgs_path = []
-    for ext in ['jpg','png']:
-        imgs_path.extend(dir_path.glob(f"*.{ext}"))
-    img_and_gps = [(np.array(PImage.open(path)),get_image_gps_info(path)) for path in imgs_path]
-    return img_and_gps
-
 def load2D(path2D):
     with open(path2D, 'r+b') as f:
         bytefile = f.read()
@@ -39,35 +30,36 @@ def load2D(path2D):
         raw2D = json.load(f)
     return raw2D
 
-def process2D(raw2D, img_tm_coord):
-    whole_objects = []
-    for img in raw2D:
-        objects = img['objects']
-        img_size = (img['image_size']['height'],img['image_size']['width'])
-        for obj in objects:
-            bbox = Bbox(img_size,**obj)
-            obj['voc_bbox'] = cal_GPSBbox(bbox,img_size)
-            del obj['yolo_bbox']
-            whole_objects.append(obj)
-    return whole_objects
+def cal_GPSBbox(img_gps,bbox:Bbox, img_size):
+    mmp = 13.7061/1000
+    box_size =  np.array((bbox.h_a,bbox.w_a))
+    gps_box_size = img_gps+box_size*mmp*(-1,1)
 
-def cal_GPSBbox(bbox:Bbox, img_size):
-    return np.array((bbox.xc_a,bbox.yc_a))-img_size[::-1]/2
+    lt_img_coord =  np.array((bbox.y1_a,bbox.x1_a))-np.array(img_size)/2
+    lt_gps_coord = img_gps+lt_img_coord*mmp*(-1,1)
 
-def arrange_image(img_and_gps):
-    imgs, gpses = zip(*img_and_gps)
-    lats,lons = zip(*gpses)
-    data = load2D('d:/ensemble/ensemble/costum_result_del.json')
-    whole_objs = []
-    for gps in gpses:
-        whole_objs.extend(process2D(data,gps))
-
-    plt.scatter(lats,lons)
-    plt.show()
-
-
-
+    return lt_gps_coord,gps_box_size
 
 if __name__=='__main__':
-    img_and_gps = load_images('d:/ensemble/ensemble/images_crater/')
-    arrange_image(img_and_gps)
+    data = load2D('d:/ensemble/ensemble/costum_result_del.json')
+    whole_objects = []
+    img_gpses = []
+    for d in data:
+        filename = d['filename']
+        img_size = (d['image_size']['height'],d['image_size']['width'])
+        img_gps = get_image_gps_info(filename)
+        for obj in d['objects']:
+            if obj['label']=='Crater' and obj['confidence']>0.5:
+                img_gpses.append(img_gps)
+                center_coord, gps_bbox_size = cal_GPSBbox(img_gps,Bbox(img_size,**obj),img_size)
+                whole_objects.append(center_coord)
+    
+    whole_x,whole_y = zip(*whole_objects)
+    lats,lons = zip(*img_gpses)
+
+
+    plt.figure(figsize=(10,10))
+    plt.scatter(lons,lats,label='img_gps')
+    plt.scatter(whole_y,whole_x, label='objects')
+    plt.legend()
+    plt.show()
