@@ -7,9 +7,9 @@ import chardet
 from copy import deepcopy
 from pathlib import Path
 import cv2
-from dtsummary.object import Bbox
+from MLobject import Bbox
 from pyproj import Transformer
-from exif import Image
+# from exif import Image
 import imgaug as ia
 import imgaug.augmenters as iaa
 
@@ -89,12 +89,21 @@ class EnsembleDataManager:
                 seq = iaa.Rotate(rotate=self.north_angle)
                 bbs_aug = seq(bounding_boxes=bboxesOnImg)
                 for obj,bbox in zip(objects,bbs_aug):
-                    bbox:ia.BoundingBox
-                    bbox = Bbox(img_size,voc_bbox=(bbox.x1,bbox.y1,bbox.x2,bbox.y2),label=bbox.label)
+                    bbox = Bbox(img_size,voc_bbox=(bbox.x1-50,bbox.y1-50,bbox.x2+50,bbox.y2+50),label=bbox.label)
                     obj['y2'], obj['x2'], obj['y1'], obj['x1'] = self.cal_GPSBbox(self.img_tm_coord,bbox,img_size,self.real_size)
                     whole_objects.append(obj)
-            self.data2D = pd.DataFrame([pd.Series(obj) for obj in whole_objects]).rename(columns={'confidence':'conf','label':'cat'})
-            self.data2D = self.data2D.reindex(columns='x1 y1 x2 y2 conf cat'.split())
+
+        self.data2D = pd.DataFrame([pd.Series(obj) for obj in whole_objects]).rename(columns={'confidence':'conf','label':'cat'})
+        self.data2D = self.data2D.reindex(columns='x1 y1 x2 y2 conf cat'.split())
+
+        # center_data = []
+        # for x in self.data2D.itertuples():
+        #     if x.conf>0.5:
+        #         center_data.append((x.x1+(x.x2-x.x1)/2,x.y1+(x.y2-x.y1)/2, x.cat))
+        # x_c, y_c, cat = zip(*center_data)
+        # data = {'x_center': x_c, 'y_center':y_c, 'cat':cat}
+        # df = pd.DataFrame(data)
+        # df.to_csv('object_center.csv')
     
     def load3D(self):
         with open(self.path3D, 'r+b') as f:
@@ -124,8 +133,6 @@ class Ensembler:
                     (self.mean_table['y']<=nametuple.y1)
             self.mean_table.loc[trues, f'conf2D_{nametuple.cat}'] = nametuple.conf
         for catId, cat in self.cats.items():
-            self.mean_table[f'conf2D_{cat}'] *=1.1
-            self.mean_table[f'conf3D_{cat}'] *=0.9
             self.mean_table[f'mean_{cat}'] = self.mean_table[[f'conf2D_{cat}',f'conf3D_{cat}']].mean(axis=1)
 
 
@@ -169,20 +176,20 @@ class Ensembler:
         print(f'{kind} image 저장 완료')
 
 if __name__=='__main__':
-    # camera_spec = {'sensor_size':(8.8,13.2), 'focal_length':8.8, 'distance':50000}#우리거
+    # camera_spec = {'sensor_size':(8.8,13.2), 'focal_length':8.8, 'distance':50000}#우리거 팬텀
     camera_spec = {'sensor_size':(14.131,10.35), 'focal_length':16, 'distance':50000}#공간정보
     cats = {0:'Crater', 1:'background',2:'UBX'}
     data = EnsembleDataManager(
-                'D:/ensemble/images/costum_result_1113_1.json',
-                'j:/00.User/K/공간정보기술_3D/결과/구_화정관_5(2D_11.13_1회차)_Prediction_confidence.txt',
+                'D:/ensemble/images/costum_result_1009_6.json',
+                'j:/00.User/K/3D 결과/GPS이동/신_화정관_5_2D_20211009_6회차_Prediction_confidence.txt',
                 cats,
                 camera_spec,
                 79.65,
-                'd:/ensemble/images/1113 1.csv')
-    ensembler = Ensembler(data, 0.5)
-    ensembler.export_binary('D:/ensemble/binary.csv')
-    # ensembler.export_mean('D:/ensemble/mean.csv')
-    ensembler.export_image('D:/ensemble', (1080,1620), kind='conf2D')
-    ensembler.export_image('D:/ensemble', (1080,1620), kind='conf3D')
-    ensembler.export_image('D:/ensemble', (1080,1620), kind='mean')
-    ensembler.export_image('D:/ensemble', (1080,1620), kind='binary')
+                'd:/ensemble/images/1009 6.csv')
+    ensembler = Ensembler(data, 0.7)
+    ensembler.export_binary('D:/ensemble/211214_ensemble_results/1800/binary.csv')
+    # ensembler.export_mean('D:/ensemble/211214/mean.csv')
+    ensembler.export_image('D:/ensemble/211214_ensemble_results/1800', (1080,1620), kind='conf2D')
+    ensembler.export_image('D:/ensemble/211214_ensemble_results/1800', (1080,1620), kind='conf3D')
+    ensembler.export_image('D:/ensemble/211214_ensemble_results/1800', (1080,1620), kind='mean')
+    ensembler.export_image('D:/ensemble/211214_ensemble_results/1800', (1080,1620), kind='binary')
