@@ -8,7 +8,7 @@ import chardet
 
 from collections import defaultdict
 
-coco_json_path = 'd:/TIPS dataset/export/merged_dataset_coco/annotations/2_chg_cat.json'
+coco_json_path = 'd:/TIPS dataset/export/merged_dataset_coco/annotations/2_chg&rm_cat.json'
 
 with open(coco_json_path, 'r+b') as f:
     encoding = chardet.detect(f.read())['encoding']

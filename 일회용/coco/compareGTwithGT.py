@@ -11,8 +11,8 @@ import pandas as pd
 import json
 import chardet
 
-gt_path = 'd:/task_tips 라벨링 품질 검증용 1000개 이미지_2-2022_04_29_13_33_09-coco 1.0/annotations/instances_default.json'
-comp_gt_path = 'd:/TIPS dataset/export/merged_dataset_coco/annotations/instances_default.json'
+gt_path = 'j:/62Nas/mk/merged_dataset_coco/annotations/coco_results.json'
+comp_gt_path = 'j:/62Nas/mk/merged_dataset_coco/annotations/test_2.json'
 
 iou_type = 'bbox'
 
@@ -50,7 +50,7 @@ def bbox_to_segm(bbox):
 
 comp_gt_imgs = comp_gt.imgs
 
-datas = {'anns_id':[],'ious':[]}
+datas = {'gt_image_id':[],'gt_anns_id':[],'comp_gt_anns_id':[],'ious':[]}
 for gt_img in gt.imgs.values():
     filename_getter = itemgetter('file_name')
     gt_img_filename = gt_img['file_name']
@@ -64,6 +64,7 @@ for gt_img in gt.imgs.values():
     comp_gt_ann_ids = comp_gt.getAnnIds(imgIds=comp_gt_img_id)
     for gt_ann in gt.loadAnns(gt_ann_ids):
         iou_with_comp_gt=0
+        max_IOU_comp_gt_id = -1
         for comp_gt_ann in comp_gt.loadAnns(comp_gt_ann_ids):
             if iou_type=='bbox':
                 IOU = iou([gt_ann['bbox']],[comp_gt_ann['bbox']],np.zeros(1))
@@ -74,8 +75,11 @@ for gt_img in gt.imgs.values():
             # IOU = IOU + eps(np.mean([gt_ann['area'], comp_gt_ann['area']])/(height*width))*(1-IOU)
             if iou_with_comp_gt<IOU:
                 iou_with_comp_gt = IOU.squeeze()
+                max_IOU_comp_gt_id = comp_gt_ann['id']
         datas['ious'].append(iou_with_comp_gt)
-        datas['anns_id'].append(gt_ann['id'])
+        datas['gt_anns_id'].append(gt_ann['id'])
+        datas['gt_image_id'].append(gt_ann['image_id'])
+        datas['comp_gt_anns_id'].append(max_IOU_comp_gt_id)
 
 
 df = pd.DataFrame(datas)

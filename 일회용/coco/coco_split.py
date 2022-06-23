@@ -11,7 +11,7 @@ from copy import deepcopy
 from pycocotools.coco import COCO
 from collections import defaultdict
 
-coco_json_path = 'j:/62Nas/mk/merged_dataset_coco/annotations/5_reclean.json'
+coco_json_path = 'j:/62Nas/mk/yolov4_tiny_bridge/coco data/annotations/instances_default.json'
 split_rate = 0.8
 
 
@@ -65,8 +65,8 @@ test_coco_json['images'] = test_imgs
 test_coco_json['annotations'] = test_annos
 
 dir = os.path.split(coco_json_path)[0]
-with open(os.path.join(dir,'train.json'),'w') as f:
+with open(os.path.join(dir,'instances_train.json'),'w') as f:
     json.dump(train_coco_json,f)
 
-with open(os.path.join(dir,'test.json'),'w') as f:
+with open(os.path.join(dir,'instances_test.json'),'w') as f:
     json.dump(test_coco_json,f)

@@ -7,7 +7,7 @@
 import json
 import chardet
 
-coco_json_path = 'j:/62Nas/mk/merged_dataset_coco/annotations/5_reclean.json'
+coco_json_path = 'd:/TIPS dataset/export/merged_dataset_coco/annotations/3_clean.json'
 
 with open(coco_json_path, 'r+b') as f:
     encoding = chardet.detect(f.read())['encoding']
@@ -52,8 +52,9 @@ for obj in coco_json['annotations']:
     cats_in_anno.add(obj['category_id'])
 
 new_images = []
+rm_img_ids = []
 for img in coco_json['images']:
-    if img['id'] in images_in_anno:
+    if (img['id'] in images_in_anno) & (img['id'] not in rm_img_ids):
         new_images.append(img)
     else:
         print(f'{img["id"]=}')

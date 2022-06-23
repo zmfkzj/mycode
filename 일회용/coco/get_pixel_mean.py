@@ -16,7 +16,7 @@ for img_info in tqdm(images):
     path = os.path.join(image_dir,img_info['file_name'])
     img = np.array(Image.open(path).convert('RGB'))
     pixel_total_sum += np.sum(np.sum(img,0),0)
-    pixel_total_size += img.size
+    pixel_total_size += img.size//3
 
 pixel_mean = pixel_total_sum / pixel_total_size
 print(pixel_mean)
