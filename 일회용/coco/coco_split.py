@@ -11,7 +11,7 @@ from copy import deepcopy
 from pycocotools.coco import COCO
 from collections import defaultdict
 
-coco_json_path = 'j:/62Nas/mk/yolov4_tiny_bridge/coco data/annotations/instances_default.json'
+coco_json_path = 'd:/TIPS dataset/export/merged_dataset_coco/annotations/3_clean.json'
 split_rate = 0.8
 
 
